@@ -24,6 +24,11 @@ export interface Product {
   ingredients: Ingredient[]
 }
 
+export type SubstitutionWarning =
+  | 'release_type_mismatch'
+  | 'narrow_therapeutic_index'
+  | 'critical_drug'
+
 export interface Alternative {
   id: string
   brand_name: string
@@ -35,6 +40,12 @@ export interface Alternative {
   is_jan_aushadhi: boolean
   savings_per_unit: number
   savings_pct: number
+  release_type: string
+  dosage_form: string
+  // computed server-side
+  confidence_score: number
+  substitution_warnings: SubstitutionWarning[]
+  is_safe_substitute: boolean
 }
 
 export interface Savings {

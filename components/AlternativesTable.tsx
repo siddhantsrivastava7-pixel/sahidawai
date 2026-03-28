@@ -6,6 +6,39 @@ interface Props {
   savings: Savings | null
 }
 
+const WARNING_META = {
+  release_type_mismatch: {
+    label: 'Different release type',
+    detail: 'IR↔SR/XR swap can be dangerous — do not substitute without prescription.',
+    color: 'text-red-600 bg-red-50 border-red-100',
+  },
+  narrow_therapeutic_index: {
+    label: 'Narrow therapeutic index',
+    detail: 'Small dose changes can cause toxicity or loss of effect. Switch only under physician supervision.',
+    color: 'text-amber-700 bg-amber-50 border-amber-100',
+  },
+  critical_drug: {
+    label: 'Critical drug',
+    detail: 'Do not switch without physician guidance.',
+    color: 'text-amber-700 bg-amber-50 border-amber-100',
+  },
+} as const
+
+function ConfidenceBadge({ score }: { score: number }) {
+  const { label, cls } = score >= 85
+    ? { label: 'High confidence', cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
+    : score >= 60
+    ? { label: 'Moderate', cls: 'bg-amber-50 text-amber-700 border-amber-100' }
+    : { label: 'Use caution', cls: 'bg-red-50 text-red-600 border-red-100' }
+
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${score >= 85 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} />
+      {label}
+    </span>
+  )
+}
+
 export default function AlternativesTable({ alternatives, savings }: Props) {
   if (!alternatives.length) {
     return (
@@ -17,12 +50,13 @@ export default function AlternativesTable({ alternatives, savings }: Props) {
     )
   }
 
+  const unsafeCount = alternatives.filter(a => !a.is_safe_substitute).length
+
   return (
     <div className="space-y-2.5">
       {/* Savings banner */}
       {savings ? (
         <div className="relative bg-gradient-to-br from-emerald-700 to-emerald-500 rounded-2xl p-5 overflow-hidden">
-          {/* Subtle dot pattern */}
           <div
             className="absolute inset-0 opacity-[0.07]"
             style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }}
@@ -47,64 +81,97 @@ export default function AlternativesTable({ alternatives, savings }: Props) {
         </div>
       )}
 
+      {/* Unsafe alternatives notice */}
+      {unsafeCount > 0 && (
+        <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-xs text-red-600 leading-relaxed">
+          <strong>⚠ {unsafeCount} alternative{unsafeCount > 1 ? 's' : ''} flagged</strong> — release type or safety concern detected.
+          Flagged options are shown below but <strong>must not be substituted without a prescription.</strong>
+        </div>
+      )}
+
       {/* Alternatives list */}
       {alternatives.map((alt, i) => {
         const altPPU = Number(alt.price_per_unit)
         const isCheaper = alt.savings_per_unit > 0
-        const isBest = i === 0 && isCheaper
+        const isBest = i === 0 && isCheaper && alt.is_safe_substitute
         const pct = Number(alt.savings_pct)
+        const hasWarnings = alt.substitution_warnings.length > 0
 
         return (
           <div
             key={alt.id}
-            className={`bg-white rounded-2xl border p-4 flex items-center gap-4 transition-all duration-150 hover:shadow-md
+            className={`bg-white rounded-2xl border p-4 transition-all duration-150 hover:shadow-md
               ${isBest
                 ? 'border-emerald-200 shadow-[0_2px_12px_rgba(16,185,129,0.08)]'
+                : hasWarnings
+                ? 'border-red-100 shadow-[0_1px_4px_rgba(239,68,68,0.06)]'
                 : 'border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]'
               }`}
           >
-            {/* Rank */}
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0
-              ${i === 0 && isCheaper ? 'bg-emerald-600 text-white' : i < 3 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
-              {i + 1}
-            </div>
+            <div className="flex items-start gap-4">
+              {/* Rank */}
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5
+                ${isBest ? 'bg-emerald-600 text-white' : hasWarnings ? 'bg-red-50 text-red-400' : i < 3 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
+                {i + 1}
+              </div>
 
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-semibold text-gray-900 text-sm">{alt.brand_name}</p>
-                {isBest && (
-                  <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide">
-                    BEST PRICE
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-gray-900 text-sm">{alt.brand_name}</p>
+                  {isBest && (
+                    <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide">
+                      BEST PRICE
+                    </span>
+                  )}
+                  {alt.is_generic && (
+                    <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-medium">
+                      Generic
+                    </span>
+                  )}
+                  {alt.is_jan_aushadhi && (
+                    <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-medium">
+                      Jan Aushadhi
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-gray-400 mt-0.5 font-medium">
+                  {alt.manufacturer} · {alt.unit_per_pack} tabs · MRP ₹{Number(alt.mrp).toFixed(2)}
+                  {alt.release_type && alt.release_type !== 'IR' && (
+                    <span className="ml-1.5 text-amber-600 font-semibold">{alt.release_type}</span>
+                  )}
+                </p>
+
+                {/* Confidence + warnings */}
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <ConfidenceBadge score={alt.confidence_score} />
+                  {alt.substitution_warnings.map(w => (
+                    <span
+                      key={w}
+                      title={WARNING_META[w].detail}
+                      className={`inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full border cursor-help ${WARNING_META[w].color}`}
+                    >
+                      ⚠ {WARNING_META[w].label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Price */}
+              <div className="text-right shrink-0">
+                <p className="text-lg font-bold text-gray-900">₹{altPPU.toFixed(2)}</p>
+                <p className="text-[10px] text-gray-400 font-medium">per tablet</p>
+                {isCheaper ? (
+                  <span className="inline-block bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full mt-1 border border-emerald-100">
+                    Save {pct}%
                   </span>
-                )}
-                {alt.is_generic && (
-                  <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-medium">
-                    Generic
-                  </span>
-                )}
-                {alt.is_jan_aushadhi && (
-                  <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-medium">
-                    Jan Aushadhi
+                ) : (
+                  <span className="inline-block bg-red-50 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded-full mt-1 border border-red-100">
+                    +{Math.abs(pct)}% costlier
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-gray-400 mt-0.5 font-medium">{alt.manufacturer} · {alt.unit_per_pack} tabs · MRP ₹{Number(alt.mrp).toFixed(2)}</p>
-            </div>
-
-            {/* Price */}
-            <div className="text-right shrink-0">
-              <p className="text-lg font-bold text-gray-900">₹{altPPU.toFixed(2)}</p>
-              <p className="text-[10px] text-gray-400 font-medium">per tablet</p>
-              {isCheaper ? (
-                <span className="inline-block bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full mt-1 border border-emerald-100">
-                  Save {pct}%
-                </span>
-              ) : (
-                <span className="inline-block bg-red-50 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded-full mt-1 border border-red-100">
-                  +{Math.abs(pct)}% costlier
-                </span>
-              )}
             </div>
           </div>
         )
