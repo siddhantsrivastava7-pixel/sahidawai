@@ -14,9 +14,19 @@ export default function Navbar() {
           BETA
         </span>
       </Link>
-      <span className="ml-auto text-gray-400 text-xs hidden sm:block tracking-wide">
-        Same salt. Better price.
-      </span>
+      <div className="ml-auto flex items-center gap-3">
+        <Link
+          href="/calculator"
+          className="flex items-center gap-1.5 text-gray-500 text-xs font-medium hover:text-emerald-600 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          </svg>
+          <span className="hidden sm:inline">Calculator</span>
+        </Link>
+        <span className="text-gray-200 hidden sm:block">|</span>
+        <span className="text-gray-400 text-xs hidden sm:block tracking-wide">Same salt. Better price.</span>
+      </div>
     </nav>
   )
 }

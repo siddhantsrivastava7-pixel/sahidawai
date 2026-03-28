@@ -5,6 +5,7 @@ import { SearchResult } from '@/types'
 import ProductCard from '@/components/ProductCard'
 import AlternativesTable from '@/components/AlternativesTable'
 import SearchBar from '@/components/SearchBar'
+import AddToCalculatorButton from '@/components/AddToCalculatorButton'
 
 export default function SearchPageInner() {
   const searchParams = useSearchParams()
@@ -76,7 +77,13 @@ export default function SearchPageInner() {
           </button>
 
           <div>
-            <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase mb-2.5">Searched Medicine</p>
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase">Searched Medicine</p>
+              <AddToCalculatorButton
+                product={result.product}
+                cheapestAlt={result.alternatives?.find(a => a.is_safe_substitute && a.savings_per_unit > 0) ?? result.alternatives?.[0] ?? null}
+              />
+            </div>
             <ProductCard product={result.product} />
           </div>
 
