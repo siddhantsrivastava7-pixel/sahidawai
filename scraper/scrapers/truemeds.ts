@@ -24,12 +24,12 @@ export async function scrapeTruemeds(page: Page, query: string): Promise<Scraped
 
     // If we got a session token, try the API directly
     if (sessionToken && !searchData) {
-      searchData = await page.evaluate(async (q, token) => {
+      searchData = await page.evaluate(async ({ q, token }: { q: string, token: string }) => {
         const r = await fetch(`https://nal.tmmumbai.in/ProductService/searchProducts?searchString=${encodeURIComponent(q)}&pageNo=0&pageSize=20&sessionToken=${token}&isApp=false`, {
           headers: { 'Accept': 'application/json' }
         })
         return r.json()
-      }, query, sessionToken).catch(() => null)
+      }, { q: query, token: sessionToken }).catch(() => null)
     }
 
     // Also try DOM scraping
