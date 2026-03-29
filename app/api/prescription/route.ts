@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { createHash } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { Product, Alternative } from '@/types'
@@ -30,8 +31,20 @@ export interface PrescriptionAnalysis {
   total_savings: number
 }
 
+// ── Anonymization ──────────────────────────────────────────────────────────
 
-// ── OCR: extract structured medicine list ─────────────────────────────────
+interface PrescriberSignals {
+  doctor_name: string | null
+  city: string | null
+  speciality_hint: string | null
+}
+
+function hashPrescriber(name: string, city: string): string {
+  const canonical = `${name.toLowerCase().trim()}|${city.toLowerCase().trim()}`
+  return createHash('sha256').update(canonical).digest('hex')
+}
+
+// ── OCR: structured extraction ─────────────────────────────────────────────
 
 interface OcrMedicine {
   name: string
@@ -40,49 +53,129 @@ interface OcrMedicine {
   duration_days: number
 }
 
-async function extractMedicinesFromImage(base64: string, mediaType: string): Promise<OcrMedicine[]> {
+interface OcrResult {
+  medicines: OcrMedicine[]
+  prescriber: PrescriberSignals
+}
+
+async function extractFromImage(base64: string, mediaType: string): Promise<OcrResult> {
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 1024,
+    max_tokens: 1200,
     messages: [{
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType as any, data: base64 } },
         {
           type: 'text',
-          text: `Analyse this prescription image. For each medicine prescribed, extract:
-- name: brand name with strength (e.g. "Augmentin 625 Tablet", "Pantoprazole 40mg")
-- frequency_label: human-readable (e.g. "twice daily", "once at night", "three times daily")
-- tabs_per_day: number of tablets/capsules per day (integer)
-- duration_days: number of days prescribed (integer; if chronic/not stated use 30; for antibiotics default to 5)
+          text: `Analyse this prescription image and return a single JSON object with two keys:
 
-Return ONLY a valid JSON array, nothing else. Example:
-[
-  {"name":"Augmentin 625 Tablet","frequency_label":"twice daily","tabs_per_day":2,"duration_days":5},
-  {"name":"Pantoprazole 40mg","frequency_label":"once daily","tabs_per_day":1,"duration_days":30}
-]`,
+"prescriber": {
+  "doctor_name": doctor's name if visible (string or null),
+  "city": city/location if visible (string or null),
+  "speciality_hint": infer from medicines — e.g. "diabetologist", "cardiologist", "general" (string or null)
+}
+
+"medicines": array of objects, one per medicine:
+  - name: brand name with strength (e.g. "Augmentin 625 Tablet")
+  - frequency_label: human-readable (e.g. "twice daily")
+  - tabs_per_day: integer
+  - duration_days: integer (chronic/not stated → 30; antibiotics → 5)
+
+Return ONLY valid JSON, nothing else.`,
         },
       ],
     }],
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text.trim() : ''
-  const match = text.match(/\[[\s\S]*\]/)
-  if (!match) return []
+  const match = text.match(/\{[\s\S]*\}/)
+  if (!match) return { medicines: [], prescriber: { doctor_name: null, city: null, speciality_hint: null } }
+
   try {
-    const arr = JSON.parse(match[0])
-    return Array.isArray(arr) ? arr.filter((m: any) => m.name && m.tabs_per_day) : []
+    const parsed = JSON.parse(match[0])
+    const medicines: OcrMedicine[] = Array.isArray(parsed.medicines)
+      ? parsed.medicines.filter((m: any) => m.name && m.tabs_per_day)
+      : []
+    const prescriber: PrescriberSignals = {
+      doctor_name: parsed.prescriber?.doctor_name ?? null,
+      city: parsed.prescriber?.city ?? null,
+      speciality_hint: parsed.prescriber?.speciality_hint ?? null,
+    }
+    return { medicines, prescriber }
   } catch {
-    return []
+    return { medicines: [], prescriber: { doctor_name: null, city: null, speciality_hint: null } }
   }
 }
 
-// ── Search one medicine and build a PrescriptionItem ─────────────────────
+// ── Prescriber profile upsert ──────────────────────────────────────────────
+
+async function upsertPrescriber(signals: PrescriberSignals): Promise<string | null> {
+  if (!signals.doctor_name || !signals.city) return null
+
+  const prescriber_id = hashPrescriber(signals.doctor_name, signals.city)
+
+  await supabaseAdmin.from('prescriber_profiles').upsert({
+    prescriber_id,
+    city: signals.city,
+    speciality_hint: signals.speciality_hint,
+    last_seen_at: new Date().toISOString(),
+    prescription_count: 1,
+  }, {
+    onConflict: 'prescriber_id',
+    ignoreDuplicates: false,
+  })
+
+  // Increment prescription count separately (upsert doesn't support increments)
+  await supabaseAdmin.rpc('increment_prescriber_count', { p_id: prescriber_id }).maybeSingle()
+
+  return prescriber_id
+}
+
+// ── Store prescription events (fire-and-forget) ────────────────────────────
+
+async function storePrescriptionEvents(
+  items: PrescriptionItem[],
+  prescriberId: string | null,
+  sessionId: string,
+) {
+  const rows = items
+    .filter(i => i.found && i.product)
+    .map(i => {
+      const ppu = Number(i.product!.price_per_unit)
+      const cheapestAlt = i.alternatives?.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
+        ?? i.alternatives?.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
+
+      const cheapest_safe_ppu = cheapestAlt ? Number(cheapestAlt.price_per_unit) : null
+      const cost_premium_pct = cheapestAlt
+        ? Math.round(((ppu - Number(cheapestAlt.price_per_unit)) / Number(cheapestAlt.price_per_unit)) * 100 * 10) / 10
+        : 0
+
+      return {
+        prescriber_id: prescriberId,
+        product_id: i.product!.id,
+        brand_name: i.product!.brand_name,
+        canonical_key: i.product!.canonical_key,
+        prescribed_ppu: ppu,
+        cheapest_safe_ppu,
+        cheapest_safe_brand: cheapestAlt?.brand_name ?? null,
+        cost_premium_pct,
+        is_cheapest: !cheapestAlt || ppu <= (cheapest_safe_ppu ?? ppu),
+        verdict: cheapestAlt?.verdict ?? 'safe',
+        session_id: sessionId,
+      }
+    })
+
+  if (rows.length) {
+    await supabaseAdmin.from('prescription_events').insert(rows)
+  }
+}
+
+// ── Search one medicine ────────────────────────────────────────────────────
 
 async function searchMedicine(
   med: OcrMedicine,
   ntiNames: Set<string>,
-  sessionId: string,
 ): Promise<PrescriptionItem> {
   const tabs = Math.max(1, Math.round(med.tabs_per_day)) * Math.max(1, med.duration_days)
   const base: PrescriptionItem = {
@@ -107,30 +200,31 @@ async function searchMedicine(
 
   const altIds = (rawAlts ?? []).map((a: any) => a.id)
 
-  const { data: flagRows } = altIds.length
-    ? await supabaseAdmin
-        .from('kg_search_feedback')
-        .select('alternative_id')
-        .eq('product_id', product.id)
-        .eq('action', 'flagged_wrong')
-        .in('alternative_id', altIds)
-    : { data: [] as any[] }
-
-  const { data: critRows } = await supabaseAdmin
-    .from('kg_ingredients')
-    .select('name, is_nti, is_critical')
-    .or('is_nti.eq.true,is_critical.eq.true')
+  const [flagRes, critRes] = await Promise.all([
+    altIds.length
+      ? supabaseAdmin
+          .from('kg_search_feedback')
+          .select('alternative_id')
+          .eq('product_id', product.id)
+          .eq('action', 'flagged_wrong')
+          .in('alternative_id', altIds)
+      : Promise.resolve({ data: [] as any[] }),
+    supabaseAdmin
+      .from('kg_ingredients')
+      .select('name, is_nti, is_critical')
+      .or('is_nti.eq.true,is_critical.eq.true'),
+  ])
 
   const flagCount: Record<string, number> = {}
-  for (const row of flagRows ?? []) {
+  for (const row of (flagRes as any).data ?? []) {
     flagCount[row.alternative_id] = (flagCount[row.alternative_id] ?? 0) + 1
   }
-  const criticalNames = new Set((critRows ?? []).filter(r => r.is_critical).map(r => r.name))
+  const criticalNames = new Set((critRes.data ?? []).filter(r => r.is_critical).map(r => r.name))
 
-  const alternatives: Alternative[] = (rawAlts ?? []).map((alt: any) => {
-    const safety = assessSafety({ product, alt, flagCount, ntiNames, criticalNames })
-    return { ...alt, ...safety }
-  })
+  const alternatives: Alternative[] = (rawAlts ?? []).map((alt: any) => ({
+    ...alt,
+    ...assessSafety({ product, alt, flagCount, ntiNames, criticalNames }),
+  }))
 
   const ppu = Number(product.price_per_unit)
   const course_cost = ppu * tabs
@@ -143,18 +237,10 @@ async function searchMedicine(
   const cheapest_course_cost = cheapest_ppu * tabs
   const course_savings = course_cost - cheapest_course_cost
 
-  return {
-    ...base,
-    found: true,
-    product,
-    alternatives,
-    course_cost,
-    cheapest_course_cost,
-    course_savings,
-  }
+  return { ...base, found: true, product, alternatives, course_cost, cheapest_course_cost, course_savings }
 }
 
-// ── Route handler ─────────────────────────────────────────────────────────
+// ── Route handler ──────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   let formData: FormData
@@ -169,37 +255,35 @@ export async function POST(req: NextRequest) {
 
   const buffer = Buffer.from(await file.arrayBuffer())
   const base64 = buffer.toString('base64')
-  const mediaType = file.type
 
-  // Step 1: structured OCR
-  const medicines = await extractMedicinesFromImage(base64, mediaType)
+  // Step 1: OCR — medicines + prescriber signals in one Claude call
+  const { medicines, prescriber } = await extractFromImage(base64, file.type)
   if (!medicines.length) return NextResponse.json({ error: 'No medicines found' }, { status: 422 })
 
-  // Step 2: fetch NTI list from KG once
-  const { data: ntiRows } = await supabaseAdmin
-    .from('kg_ingredients')
-    .select('name')
-    .eq('is_nti', true)
+  // Step 2: NTI list
+  const { data: ntiRows } = await supabaseAdmin.from('kg_ingredients').select('name').eq('is_nti', true)
   const ntiNames = new Set((ntiRows ?? []).map(r => r.name))
 
-  // Step 3: search all medicines in parallel (cap at 8)
+  // Step 3: search all medicines in parallel
   const sessionId = Math.random().toString(36).slice(2)
-  const items = await Promise.all(
-    medicines.slice(0, 8).map(m => searchMedicine(m, ntiNames, sessionId))
-  )
+  const items = await Promise.all(medicines.slice(0, 8).map(m => searchMedicine(m, ntiNames)))
 
-  // Step 4: aggregate totals (only found medicines)
+  // Step 4: aggregate totals
   const found = items.filter(i => i.found)
   const total_current_cost = found.reduce((s, i) => s + (i.course_cost ?? 0), 0)
   const total_cheapest_cost = found.reduce((s, i) => s + (i.cheapest_course_cost ?? 0), 0)
   const total_savings = total_current_cost - total_cheapest_cost
 
-  const analysis: PrescriptionAnalysis = {
+  // Step 5: store behavior data (fire-and-forget — never blocks response)
+  void (async () => {
+    const prescriberId = await upsertPrescriber(prescriber)
+    await storePrescriptionEvents(items, prescriberId, sessionId)
+  })()
+
+  return NextResponse.json({
     items,
     total_current_cost,
     total_cheapest_cost,
     total_savings,
-  }
-
-  return NextResponse.json(analysis)
+  } satisfies PrescriptionAnalysis)
 }
