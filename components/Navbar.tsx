@@ -9,7 +9,7 @@ export default function Navbar() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
           </svg>
         </div>
-        <span className="text-gray-900 font-bold text-base tracking-tight">SahiDawai</span>
+        <span className="text-gray-900 font-bold text-base tracking-tight">MyDawai</span>
         <span className="bg-emerald-50 text-emerald-700 text-[10px] font-semibold px-1.5 py-0.5 rounded border border-emerald-100 tracking-wide">
           BETA
         </span>

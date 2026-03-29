@@ -9,7 +9,7 @@ export interface CalcEntry {
   addedAt: number
 }
 
-const KEY = 'sahidawai_calc_v1'
+const KEY = 'mydawai_calc_v1'
 
 function load(): CalcEntry[] {
   if (typeof window === 'undefined') return []
