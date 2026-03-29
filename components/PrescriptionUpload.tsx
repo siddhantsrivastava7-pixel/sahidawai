@@ -23,18 +23,31 @@ const RE_B = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s*\(\s*(\d+(?:\.\d+)?(?:\/\d+(?:\
 // Pattern C: "BrandName 625 Tablet" — brand name + bare number + tablet/cap keyword
 const RE_C = /([A-Z][A-Za-z0-9\-]{2,30}(?:\s+[A-Z][A-Za-z0-9\-]{1,20})?)\s+(\d{2,4})\s+(?:tablet|cap|capsule|syrup|drops|injection)\b/gi
 
+function cleanName(name: string): string {
+  const words = name.trim().split(/\s+/)
+  let start = 0
+  let end = words.length - 1
+  while (start <= end && NOISE_WORDS.has(words[start].toLowerCase())) start++
+  while (end >= start && NOISE_WORDS.has(words[end].toLowerCase())) end--
+  return words.slice(start, end + 1).join(' ')
+}
+
+function containsNoise(name: string): boolean {
+  return name.toLowerCase().split(/\s+/).some(w => NOISE_WORDS.has(w))
+}
+
 function tryExtract(re: RegExp, text: string, seen: Set<string>, results: string[], unitSuffix: string) {
   re.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = re.exec(text)) !== null) {
-    const rawName = match[1].trim().replace(/\s+/g, ' ')
+    const cleaned = cleanName(match[1].trim().replace(/\s+/g, ' '))
     const strength = match[2]
-    if (NOISE_WORDS.has(rawName.toLowerCase())) continue
-    if (rawName.split(' ').length > 4) continue // skip sentence fragments
-    const key = rawName.toLowerCase()
+    if (cleaned.length < 3) continue
+    if (containsNoise(cleaned)) continue
+    const key = cleaned.toLowerCase()
     if (!seen.has(key)) {
       seen.add(key)
-      results.push(`${rawName} ${strength}${unitSuffix}`)
+      results.push(`${cleaned} ${strength}${unitSuffix}`)
     }
   }
 }
@@ -48,13 +61,13 @@ function extractMedicines(text: string): string[] {
   RE_C.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = RE_C.exec(text)) !== null) {
-    const rawName = match[1].trim()
+    const cleaned = cleanName(match[1].trim())
     const strength = match[2]
-    if (NOISE_WORDS.has(rawName.toLowerCase())) continue
-    const key = rawName.toLowerCase()
+    if (cleaned.length < 3 || containsNoise(cleaned)) continue
+    const key = cleaned.toLowerCase()
     if (!seen.has(key)) {
       seen.add(key)
-      results.push(`${rawName} ${strength}`)
+      results.push(`${cleaned} ${strength}`)
     }
   }
   return results

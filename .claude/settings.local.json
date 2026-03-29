@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST \"https://lguzmlyrizeofghghiza.supabase.co/pg/query\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxndXptbHlyaXplb2ZnaGdoaXphIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDY5OTAxNiwiZXhwIjoyMDkwMjc1MDE2fQ.TuF-69fY6PKQJ4y9UrOA2uZXWX1mKSVNV13Ida2t_No\" -H \"Content-Type: application/json\" -d '{\"\"query\"\": \"\"select version\\(\\)\"\"}')",
+      "Bash(curl -s -X POST \"https://api.supabase.com/v1/projects/lguzmlyrizeofghghiza/database/query\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxndXptbHlyaXplb2ZnaGdoaXphIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDY5OTAxNiwiZXhwIjoyMDkwMjc1MDE2fQ.TuF-69fY6PKQJ4y9UrOA2uZXWX1mKSVNV13Ida2t_No\" -H \"Content-Type: application/json\" -d '{\"\"query\"\": \"\"select version\\(\\)\"\"}')",
+      "Bash(npx ts-node:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsx:*)"
+    ]
+  }
+}
