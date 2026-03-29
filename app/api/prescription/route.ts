@@ -206,6 +206,7 @@ async function searchMedicine(
     tabs_per_day: med.tabs_per_day,
     duration_days: med.duration_days,
     tabs_per_course: tabs,
+    is_chronic: med.duration_days >= 25,
     found: false,
   }
 
