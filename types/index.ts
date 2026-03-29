@@ -52,6 +52,12 @@ export interface Alternative {
   is_safe_substitute: boolean
   verdict: SafetyVerdict
   explanation: string
+  // manufacturer trust
+  manufacturer_trust_score: number | null
+  manufacturer_tier: 'trusted' | 'standard' | 'unverified'
+  manufacturer_has_who_gmp: boolean
+  manufacturer_has_us_fda: boolean
+  manufacturer_notes: string | null
 }
 
 export interface Savings {

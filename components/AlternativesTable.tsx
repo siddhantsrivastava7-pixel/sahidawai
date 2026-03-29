@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Alternative, Product, Savings, SafetyVerdict } from '@/types'
 import { VERDICT_META } from '@/lib/safety'
+import { TIER_META } from '@/lib/manufacturer'
 
 interface Props {
   product: Product
@@ -46,8 +47,27 @@ function ExplanationRow({ explanation, verdict }: { explanation: string; verdict
   )
 }
 
+type FilterMode = 'cheapest' | 'trusted'
+
+function ManufacturerBadge({ alt }: { alt: Alternative }) {
+  const tier = alt.manufacturer_tier ?? 'unverified'
+  const m = TIER_META[tier]
+  return (
+    <span
+      title={alt.manufacturer_notes ?? m.label}
+      className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border cursor-help ${m.color}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+      {m.icon} {tier === 'trusted'
+        ? alt.manufacturer_has_us_fda ? 'WHO-GMP · US FDA' : 'WHO-GMP'
+        : m.label}
+    </span>
+  )
+}
+
 export default function AlternativesTable({ product, alternatives, savings }: Props) {
   const [showUnsafe, setShowUnsafe] = useState(false)
+  const [filterMode, setFilterMode] = useState<FilterMode>('cheapest')
   const [flagged, setFlagged] = useState<Record<string, boolean>>({})
 
   const handleFlag = (altId: string) => {
@@ -67,12 +87,16 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
 
   const safe = alternatives.filter(a => a.verdict === 'safe' || a.verdict === 'check_pharmacist')
   const unsafe = alternatives.filter(a => a.verdict === 'check_doctor' || a.verdict === 'do_not_substitute')
-  const cheaper = safe.filter(a => a.savings_per_unit > 0)
-  const costlier = safe.filter(a => a.savings_per_unit <= 0)
 
-  // What to show: always cheaper safe alts, optionally costlier + unsafe
+  const filteredSafe = filterMode === 'trusted'
+    ? safe.filter(a => a.manufacturer_tier === 'trusted')
+    : safe
+
+  const cheaper = filteredSafe.filter(a => a.savings_per_unit > 0)
+  const costlier = filteredSafe.filter(a => a.savings_per_unit <= 0)
+
   const [showCostlier, setShowCostlier] = useState(false)
-  const visibleSafe = showCostlier ? safe : cheaper
+  const visibleSafe = showCostlier ? filteredSafe : cheaper
 
   return (
     <div className="space-y-2.5">
@@ -101,6 +125,37 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
       ) : (
         <div className="bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3.5 text-sm text-amber-700 font-medium">
           ✓ Already the cheapest safe option in our database for this composition.
+        </div>
+      )}
+
+      {/* Filter toggle */}
+      <div className="flex items-center gap-1.5 p-1 bg-gray-50 border border-gray-100 rounded-xl w-fit">
+        <button
+          onClick={() => setFilterMode('cheapest')}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
+            filterMode === 'cheapest'
+              ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
+        >
+          Cheapest
+        </button>
+        <button
+          onClick={() => setFilterMode('trusted')}
+          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${
+            filterMode === 'trusted'
+              ? 'bg-white text-emerald-700 shadow-sm border border-emerald-100'
+              : 'text-gray-400 hover:text-gray-600'
+          }`}
+        >
+          <span>🛡</span> Trusted manufacturer
+        </button>
+      </div>
+
+      {/* Trusted filter — no results */}
+      {filterMode === 'trusted' && filteredSafe.length === 0 && (
+        <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-xs text-amber-700 font-medium">
+          No alternatives from trusted manufacturers found for this composition. Showing all alternatives instead.
         </div>
       )}
 
@@ -151,8 +206,9 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                   )}
                 </p>
 
-                {/* Verdict badge */}
-                <div className="mt-1.5">
+                {/* Manufacturer trust + safety verdict */}
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <ManufacturerBadge alt={alt} />
                   <VerdictBadge verdict={alt.verdict} />
                 </div>
 
@@ -225,7 +281,10 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                       <p className="font-semibold text-gray-900 text-sm">{alt.brand_name}</p>
                     </div>
                     <p className="text-[11px] text-gray-400 mt-0.5">{alt.manufacturer} · MRP ₹{Number(alt.mrp).toFixed(2)}</p>
-                    <div className="mt-1.5"><VerdictBadge verdict={alt.verdict} /></div>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <ManufacturerBadge alt={alt} />
+                      <VerdictBadge verdict={alt.verdict} />
+                    </div>
                     <ExplanationRow explanation={alt.explanation} verdict={alt.verdict} />
                   </div>
                   <div className="text-right shrink-0">

@@ -1,9 +1,10 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { assessSafety } from '@/lib/safety'
+import { buildScoreMap, lookupManufacturer } from '@/lib/manufacturer'
 
-async function fetchKgSignals(productId: string, alternativeIds: string[]) {
-  const [flagsRes, kgRes] = await Promise.all([
+async function fetchAllSignals(productId: string, alternativeIds: string[]) {
+  const [flagsRes, kgRes, mfrRes] = await Promise.all([
     alternativeIds.length
       ? supabaseAdmin
           .from('kg_search_feedback')
@@ -17,6 +18,10 @@ async function fetchKgSignals(productId: string, alternativeIds: string[]) {
       .from('kg_ingredients')
       .select('name, is_nti, is_critical')
       .or('is_nti.eq.true,is_critical.eq.true'),
+
+    supabaseAdmin
+      .from('manufacturer_scores')
+      .select('name_normalized,display_name,trust_score,regulatory_score,pricing_score,consistency_score,has_who_gmp,has_us_fda,notes'),
   ])
 
   const flagCount: Record<string, number> = {}
@@ -26,8 +31,9 @@ async function fetchKgSignals(productId: string, alternativeIds: string[]) {
 
   const ntiNames = new Set((kgRes.data ?? []).filter(r => r.is_nti).map(r => r.name))
   const criticalNames = new Set((kgRes.data ?? []).filter(r => r.is_critical).map(r => r.name))
+  const manufacturerMap = buildScoreMap(mfrRes.data ?? [])
 
-  return { flagCount, ntiNames, criticalNames }
+  return { flagCount, ntiNames, criticalNames, manufacturerMap }
 }
 
 export async function POST(req: NextRequest) {
@@ -59,15 +65,26 @@ export async function POST(req: NextRequest) {
     if (altErr) return NextResponse.json({ error: altErr.message }, { status: 500 })
 
     const altIds = (rawAlternatives ?? []).map((a: any) => a.id)
-    const kgSignals = await fetchKgSignals(product.id, altIds)
+    const signals = await fetchAllSignals(product.id, altIds)
 
     const alternatives = (rawAlternatives ?? []).map((alt: any) => {
-      const safety = assessSafety({ product, alt, ...kgSignals })
-      return { ...alt, ...safety }
+      const safety = assessSafety({ product, alt, ...signals })
+      const mfr = lookupManufacturer(alt.manufacturer ?? '', signals.manufacturerMap)
+      return {
+        ...alt,
+        ...safety,
+        manufacturer_trust_score: mfr?.trust_score ?? null,
+        manufacturer_tier: mfr?.tier ?? 'unverified',
+        manufacturer_notes: mfr?.notes ?? null,
+        manufacturer_has_who_gmp: mfr?.has_who_gmp ?? false,
+        manufacturer_has_us_fda: mfr?.has_us_fda ?? false,
+      }
     })
 
-    // Savings banner: cheapest safe alternative
-    const cheapestSafe = alternatives.find((a: any) => a.verdict === 'safe' && a.savings_per_unit > 0)
+    // Savings banner: cheapest SAFE alt from a trusted manufacturer first, then any safe alt
+    const cheapestSafe =
+      alternatives.find((a: any) => a.verdict === 'safe' && a.savings_per_unit > 0 && a.manufacturer_tier === 'trusted')
+      ?? alternatives.find((a: any) => a.verdict === 'safe' && a.savings_per_unit > 0)
       ?? alternatives.find((a: any) => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
       ?? alternatives.find((a: any) => a.savings_per_unit > 0)
 
