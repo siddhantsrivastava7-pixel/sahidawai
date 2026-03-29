@@ -124,6 +124,19 @@ export async function POST(req: NextRequest) {
       session_id,
     })
 
+    // Log impressions for each alternative shown (fire-and-forget)
+    if (alternatives.length > 0) {
+      void supabaseAdmin.from('kg_search_feedback').insert(
+        alternatives.map((a: any) => ({
+          product_id: product.id,
+          alternative_id: a.id,
+          action: 'alternative_viewed',
+          session_id: session_id ?? null,
+          query: q,
+        }))
+      )
+    }
+
     return NextResponse.json({
       found: true,
       product,
