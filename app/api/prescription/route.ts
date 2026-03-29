@@ -1,13 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
-import { Product, Alternative, SubstitutionWarning } from '@/types'
+import { Product, Alternative } from '@/types'
+import { assessSafety } from '@/lib/safety'
 
 const client = new Anthropic()
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const MAX_BYTES = 10 * 1024 * 1024
-const EXTENDED_RELEASE_RE = /\b(SR|XR|ER|CR|LA|CD|TR|MR|RETARD|PROLONGED)\b/i
 
 export interface PrescriptionItem {
   name: string
@@ -30,48 +30,6 @@ export interface PrescriptionAnalysis {
   total_savings: number
 }
 
-// ── Scoring (mirrors app/api/search/route.ts) ─────────────────────────────
-
-function inferReleaseType(brandName: string, rt: string | null | undefined) {
-  if (rt?.trim()) return rt.trim().toUpperCase()
-  return EXTENDED_RELEASE_RE.test(brandName) ? 'SR' : 'IR'
-}
-
-function extractStrength(name: string) {
-  const m = name.match(/\b(\d{2,4}(?:\.\d+)?)\b/)
-  return m ? parseFloat(m[1]) : null
-}
-
-function scoreAlt(
-  product: Product,
-  alt: any,
-  flagCount: Record<string, number>,
-  ntiNames: Set<string>,
-): { confidence_score: number; substitution_warnings: SubstitutionWarning[]; is_safe_substitute: boolean } {
-  const warnings: SubstitutionWarning[] = []
-  let score = 95
-
-  if ((flagCount[alt.id] ?? 0) >= 3) { warnings.push('user_flagged'); score = 5 }
-
-  const pRT = inferReleaseType(product.brand_name, product.release_type)
-  const aRT = inferReleaseType(alt.brand_name, alt.release_type)
-  if (pRT !== aRT) { warnings.push('release_type_mismatch'); score = Math.min(score, 15) }
-
-  const pS = extractStrength(product.brand_name)
-  const aS = extractStrength(alt.brand_name)
-  if (pS !== null && aS !== null && pS !== aS) { warnings.push('strength_mismatch'); score = Math.min(score, 20) }
-
-  const comp = product.composition_text_raw.toLowerCase()
-  const ingNames = (product.ingredients ?? []).map(i => i.ingredient.toLowerCase().trim())
-  if (ingNames.some(n => ntiNames.has(n)) || comp.split(/[\s,+]+/).some(w => ntiNames.has(w))) {
-    warnings.push('narrow_therapeutic_index'); score = Math.min(score, 55)
-  }
-  if (product.ingredients?.some(i => i.is_critical)) {
-    warnings.push('critical_drug'); score = Math.min(score, 50)
-  }
-
-  return { confidence_score: score, substitution_warnings: warnings, is_safe_substitute: score >= 70 }
-}
 
 // ── OCR: extract structured medicine list ─────────────────────────────────
 
@@ -147,8 +105,8 @@ async function searchMedicine(
   const { data: rawAlts } = await supabaseAdmin
     .rpc('find_alternatives', { p_canonical_key: product.canonical_key, p_exclude_id: product.id })
 
-  // Fetch flag counts for alternatives
   const altIds = (rawAlts ?? []).map((a: any) => a.id)
+
   const { data: flagRows } = altIds.length
     ? await supabaseAdmin
         .from('kg_search_feedback')
@@ -156,22 +114,29 @@ async function searchMedicine(
         .eq('product_id', product.id)
         .eq('action', 'flagged_wrong')
         .in('alternative_id', altIds)
-    : { data: [] }
+    : { data: [] as any[] }
+
+  const { data: critRows } = await supabaseAdmin
+    .from('kg_ingredients')
+    .select('name, is_nti, is_critical')
+    .or('is_nti.eq.true,is_critical.eq.true')
 
   const flagCount: Record<string, number> = {}
   for (const row of flagRows ?? []) {
     flagCount[row.alternative_id] = (flagCount[row.alternative_id] ?? 0) + 1
   }
+  const criticalNames = new Set((critRows ?? []).filter(r => r.is_critical).map(r => r.name))
 
-  const alternatives: Alternative[] = (rawAlts ?? []).map((alt: any) => ({
-    ...alt,
-    ...scoreAlt(product, alt, flagCount, ntiNames),
-  }))
+  const alternatives: Alternative[] = (rawAlts ?? []).map((alt: any) => {
+    const safety = assessSafety({ product, alt, flagCount, ntiNames, criticalNames })
+    return { ...alt, ...safety }
+  })
 
   const ppu = Number(product.price_per_unit)
   const course_cost = ppu * tabs
 
-  const cheapestSafe = alternatives.find(a => a.is_safe_substitute && a.savings_per_unit > 0)
+  const cheapestSafe = alternatives.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
+    ?? alternatives.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
     ?? alternatives.find(a => a.savings_per_unit > 0)
 
   const cheapest_ppu = cheapestSafe ? Number(cheapestSafe.price_per_unit) : ppu

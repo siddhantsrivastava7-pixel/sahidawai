@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { Alternative, Product, Savings } from '@/types'
+import { Alternative, Product, Savings, SafetyVerdict } from '@/types'
+import { VERDICT_META } from '@/lib/safety'
 
 interface Props {
   product: Product
@@ -8,68 +9,50 @@ interface Props {
   savings: Savings | null
 }
 
-async function sendFeedback(productId: string, alternativeId: string, action: string, sessionId?: string) {
+async function sendFeedback(productId: string, alternativeId: string, action: string) {
   try {
     await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_id: productId, alternative_id: alternativeId, action, session_id: sessionId }),
+      body: JSON.stringify({ product_id: productId, alternative_id: alternativeId, action }),
     })
-  } catch {
-    // fire-and-forget — swallow errors silently
-  }
+  } catch { /* fire-and-forget */ }
 }
 
-const WARNING_META = {
-  release_type_mismatch: {
-    label: 'Different release type',
-    detail: 'IR↔SR/XR swap can be dangerous — do not substitute without prescription.',
-    color: 'text-red-600 bg-red-50 border-red-100',
-  },
-  strength_mismatch: {
-    label: 'Different strength',
-    detail: 'This brand has a different dose of the active ingredient — not interchangeable without a new prescription.',
-    color: 'text-red-600 bg-red-50 border-red-100',
-  },
-  narrow_therapeutic_index: {
-    label: 'Narrow therapeutic index',
-    detail: 'Small dose changes can cause toxicity or loss of effect. Switch only under physician supervision.',
-    color: 'text-amber-700 bg-amber-50 border-amber-100',
-  },
-  critical_drug: {
-    label: 'Critical drug',
-    detail: 'Do not switch without physician guidance.',
-    color: 'text-amber-700 bg-amber-50 border-amber-100',
-  },
-  user_flagged: {
-    label: 'Flagged by users',
-    detail: 'Multiple users have reported this as a wrong alternative. Avoid substituting without checking with your pharmacist.',
-    color: 'text-red-600 bg-red-50 border-red-100',
-  },
-} as const
-
-function ConfidenceBadge({ score }: { score: number }) {
-  const { label, cls } = score >= 85
-    ? { label: 'High confidence', cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
-    : score >= 60
-    ? { label: 'Moderate', cls: 'bg-amber-50 text-amber-700 border-amber-100' }
-    : { label: 'Use caution', cls: 'bg-red-50 text-red-600 border-red-100' }
-
+function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
+  const m = VERDICT_META[verdict]
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${score >= 85 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500'}`} />
-      {label}
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${m.color}`}>
+      {m.icon} {m.label}
     </span>
   )
 }
 
-export default function AlternativesTable({ product, alternatives, savings }: Props) {
-  const [showCostlier, setShowCostlier] = useState(false)
-  const [flagged, setFlagged] = useState<Record<string, 'wrong' | 'correct'>>({})
+function ExplanationRow({ explanation, verdict }: { explanation: string; verdict: SafetyVerdict }) {
+  const [open, setOpen] = useState(false)
+  const isWarning = verdict === 'do_not_substitute' || verdict === 'check_doctor'
 
-  const handleFlag = (altId: string, action: 'flagged_wrong' | 'flagged_correct') => {
-    setFlagged(prev => ({ ...prev, [altId]: action === 'flagged_wrong' ? 'wrong' : 'correct' }))
-    void sendFeedback(product.id, altId, action)
+  return (
+    <div className={`mt-2.5 rounded-xl text-xs leading-relaxed px-3 py-2.5 border ${
+      isWarning ? 'bg-red-50 border-red-100 text-red-700' :
+      verdict === 'check_pharmacist' ? 'bg-amber-50 border-amber-100 text-amber-700' :
+      'bg-emerald-50 border-emerald-100 text-emerald-700'
+    }`}>
+      {open || explanation.length <= 100
+        ? explanation
+        : <>{explanation.slice(0, 100)}… <button onClick={() => setOpen(true)} className="font-semibold underline underline-offset-2">more</button></>
+      }
+    </div>
+  )
+}
+
+export default function AlternativesTable({ product, alternatives, savings }: Props) {
+  const [showUnsafe, setShowUnsafe] = useState(false)
+  const [flagged, setFlagged] = useState<Record<string, boolean>>({})
+
+  const handleFlag = (altId: string) => {
+    setFlagged(prev => ({ ...prev, [altId]: true }))
+    void sendFeedback(product.id, altId, 'flagged_wrong')
   }
 
   if (!alternatives.length) {
@@ -82,24 +65,29 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
     )
   }
 
-  const cheaper = alternatives.filter(a => a.savings_per_unit > 0)
-  const costlier = alternatives.filter(a => a.savings_per_unit <= 0)
-  const unsafeCount = alternatives.filter(a => !a.is_safe_substitute).length
-  const visibleAlts = showCostlier ? alternatives : cheaper
+  const safe = alternatives.filter(a => a.verdict === 'safe' || a.verdict === 'check_pharmacist')
+  const unsafe = alternatives.filter(a => a.verdict === 'check_doctor' || a.verdict === 'do_not_substitute')
+  const cheaper = safe.filter(a => a.savings_per_unit > 0)
+  const costlier = safe.filter(a => a.savings_per_unit <= 0)
+
+  // What to show: always cheaper safe alts, optionally costlier + unsafe
+  const [showCostlier, setShowCostlier] = useState(false)
+  const visibleSafe = showCostlier ? safe : cheaper
 
   return (
     <div className="space-y-2.5">
+
       {/* Savings banner */}
       {savings ? (
         <div className="relative bg-gradient-to-br from-emerald-700 to-emerald-500 rounded-2xl p-5 overflow-hidden">
-          <div
-            className="absolute inset-0 opacity-[0.07]"
-            style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }}
-          />
+          <div className="absolute inset-0 opacity-[0.07]"
+            style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
           <div className="relative flex items-center justify-between flex-wrap gap-4">
             <div>
               <p className="text-emerald-200 text-xs font-medium tracking-wide uppercase mb-1">Maximum you can save</p>
-              <p className="text-white text-3xl font-black tracking-tight">₹{savings.per_month_2x.toFixed(0)}<span className="text-lg font-semibold text-emerald-200"> / month</span></p>
+              <p className="text-white text-3xl font-black tracking-tight">
+                ₹{savings.per_month_2x.toFixed(0)}<span className="text-lg font-semibold text-emerald-200"> / month</span>
+              </p>
               <p className="text-emerald-300 text-xs mt-1">
                 ₹{Number(savings.per_unit).toFixed(2)} less per tablet vs {savings.vs_brand}
               </p>
@@ -112,41 +100,30 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
         </div>
       ) : (
         <div className="bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3.5 text-sm text-amber-700 font-medium">
-          ✓ Already the cheapest option in our database for this composition.
+          ✓ Already the cheapest safe option in our database for this composition.
         </div>
       )}
 
-      {/* Unsafe alternatives notice */}
-      {unsafeCount > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-xs text-red-600 leading-relaxed">
-          <strong>⚠ {unsafeCount} alternative{unsafeCount > 1 ? 's' : ''} flagged</strong> — release type or safety concern detected.
-          Flagged options are shown below but <strong>must not be substituted without a prescription.</strong>
+      {/* Safe alternatives */}
+      {visibleSafe.length === 0 && cheaper.length === 0 && (
+        <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3.5 text-sm text-gray-500 font-medium text-center">
+          No cheaper safe alternatives found.
         </div>
       )}
 
-      {/* Alternatives list */}
-      {visibleAlts.map((alt, i) => {
+      {visibleSafe.map((alt, i) => {
         const altPPU = Number(alt.price_per_unit)
         const isCheaper = alt.savings_per_unit > 0
-        const isBest = i === 0 && isCheaper && alt.is_safe_substitute
+        const isBest = i === 0 && isCheaper && alt.verdict === 'safe'
         const pct = Number(alt.savings_pct)
-        const hasWarnings = alt.substitution_warnings.length > 0
+        const vm = VERDICT_META[alt.verdict]
 
         return (
-          <div
-            key={alt.id}
-            className={`bg-white rounded-2xl border p-4 transition-all duration-150 hover:shadow-md
-              ${isBest
-                ? 'border-emerald-200 shadow-[0_2px_12px_rgba(16,185,129,0.08)]'
-                : hasWarnings
-                ? 'border-red-100 shadow-[0_1px_4px_rgba(239,68,68,0.06)]'
-                : 'border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.04)]'
-              }`}
-          >
+          <div key={alt.id} className={`bg-white rounded-2xl border-l-4 border border-gray-100 p-4 transition-all duration-150 hover:shadow-md ${vm.borderColor}`}>
             <div className="flex items-start gap-4">
               {/* Rank */}
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5
-                ${isBest ? 'bg-emerald-600 text-white' : hasWarnings ? 'bg-red-50 text-red-400' : i < 3 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
+                ${isBest ? 'bg-emerald-600 text-white' : 'bg-gray-50 text-gray-400'}`}>
                 {i + 1}
               </div>
 
@@ -160,14 +137,10 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                     </span>
                   )}
                   {alt.is_generic && (
-                    <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-medium">
-                      Generic
-                    </span>
+                    <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-medium">Generic</span>
                   )}
                   {alt.is_jan_aushadhi && (
-                    <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-medium">
-                      Jan Aushadhi
-                    </span>
+                    <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-medium">Jan Aushadhi</span>
                   )}
                 </div>
 
@@ -178,22 +151,16 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                   )}
                 </p>
 
-                {/* Confidence + warnings */}
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  <ConfidenceBadge score={alt.confidence_score} />
-                  {alt.substitution_warnings.map(w => (
-                    <span
-                      key={w}
-                      title={WARNING_META[w].detail}
-                      className={`inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full border cursor-help ${WARNING_META[w].color}`}
-                    >
-                      ⚠ {WARNING_META[w].label}
-                    </span>
-                  ))}
+                {/* Verdict badge */}
+                <div className="mt-1.5">
+                  <VerdictBadge verdict={alt.verdict} />
                 </div>
+
+                {/* Explanation */}
+                <ExplanationRow explanation={alt.explanation} verdict={alt.verdict} />
               </div>
 
-              {/* Price */}
+              {/* Price + flag */}
               <div className="text-right shrink-0">
                 <p className="text-lg font-bold text-gray-900">₹{altPPU.toFixed(2)}</p>
                 <p className="text-[10px] text-gray-400 font-medium">per tablet</p>
@@ -208,12 +175,10 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                 )}
                 <div className="mt-2">
                   {flagged[alt.id] ? (
-                    <span className={`text-[10px] font-medium ${flagged[alt.id] === 'wrong' ? 'text-red-400' : 'text-emerald-600'}`}>
-                      {flagged[alt.id] === 'wrong' ? '🚩 Flagged' : '✓ Confirmed'}
-                    </span>
+                    <span className="text-[10px] text-red-400 font-medium">🚩 Flagged</span>
                   ) : (
                     <button
-                      onClick={() => handleFlag(alt.id, 'flagged_wrong')}
+                      onClick={() => handleFlag(alt.id)}
                       title="Flag as wrong alternative"
                       className="text-gray-200 hover:text-red-400 transition-colors text-xs"
                     >
@@ -227,7 +192,7 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
         )
       })}
 
-      {/* Toggle for costlier alternatives */}
+      {/* Toggle costlier safe options */}
       {costlier.length > 0 && (
         <button
           onClick={() => setShowCostlier(v => !v)}
@@ -237,6 +202,41 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
             ? `Hide ${costlier.length} more expensive option${costlier.length !== 1 ? 's' : ''} ↑`
             : `Show ${costlier.length} more expensive option${costlier.length !== 1 ? 's' : ''} ↓`}
         </button>
+      )}
+
+      {/* Unsafe section */}
+      {unsafe.length > 0 && (
+        <div className="border-t border-gray-100 pt-2.5">
+          <button
+            onClick={() => setShowUnsafe(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-semibold hover:bg-red-100 transition-colors"
+          >
+            <span>⚠ {unsafe.length} unsafe alternative{unsafe.length !== 1 ? 's' : ''} hidden</span>
+            <span>{showUnsafe ? '↑ Hide' : '↓ Show anyway'}</span>
+          </button>
+
+          {showUnsafe && unsafe.map((alt) => {
+            const vm = VERDICT_META[alt.verdict]
+            return (
+              <div key={alt.id} className={`mt-2 bg-white rounded-2xl border-l-4 border border-gray-100 p-4 opacity-80 ${vm.borderColor}`}>
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900 text-sm">{alt.brand_name}</p>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{alt.manufacturer} · MRP ₹{Number(alt.mrp).toFixed(2)}</p>
+                    <div className="mt-1.5"><VerdictBadge verdict={alt.verdict} /></div>
+                    <ExplanationRow explanation={alt.explanation} verdict={alt.verdict} />
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-base font-bold text-gray-900">₹{Number(alt.price_per_unit).toFixed(2)}</p>
+                    <p className="text-[10px] text-gray-400">per tablet</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
