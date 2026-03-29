@@ -20,14 +20,56 @@ async function sendFeedback(productId: string, alternativeId: string, action: st
   } catch { /* fire-and-forget */ }
 }
 
-function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
-  const m = VERDICT_META[verdict]
+// ── Confidence bar (out of 100) ────────────────────────────────────────────
+
+function ConfidenceBar({ score }: { score: number }) {
+  // safe=92, check_pharmacist=55, check_doctor=40, do_not_substitute=5–18
+  const pct = Math.min(100, Math.max(0, score))
+  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-red-400'
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${m.color}`}>
-      {m.icon} {m.label}
-    </span>
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] font-bold text-gray-400 tabular-nums w-7 text-right">{pct}%</span>
+    </div>
   )
 }
+
+// ── Safety explanation — "Why this is safe" ───────────────────────────────
+
+function SafetyPanel({ explanation, verdict }: { explanation: string; verdict: SafetyVerdict }) {
+  const [open, setOpen] = useState(false)
+  const isUnsafe = verdict === 'do_not_substitute' || verdict === 'check_doctor'
+  const isAmber = verdict === 'check_pharmacist'
+
+  const bg = isUnsafe ? 'bg-red-50 border-red-100 text-red-700'
+    : isAmber ? 'bg-amber-50 border-amber-100 text-amber-700'
+    : 'bg-emerald-50 border-emerald-100 text-emerald-700'
+
+  const label = isUnsafe ? 'Why you should be careful'
+    : isAmber ? 'What to check with your pharmacist'
+    : 'Why this is safe'
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-bold transition-colors ${bg}`}
+      >
+        <span>{label}</span>
+        <span className="ml-2 shrink-0">{open ? '↑' : '↓'}</span>
+      </button>
+      {open && (
+        <div className={`mt-1.5 px-3.5 py-3 rounded-xl border text-xs leading-relaxed ${bg}`}>
+          {explanation}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Manufacturer badge ─────────────────────────────────────────────────────
 
 function ManufacturerBadge({ alt }: { alt: Alternative }) {
   const tier = alt.manufacturer_tier ?? 'unverified'
@@ -45,26 +87,126 @@ function ManufacturerBadge({ alt }: { alt: Alternative }) {
   )
 }
 
-function ExplanationRow({ explanation, verdict }: { explanation: string; verdict: SafetyVerdict }) {
-  const [open, setOpen] = useState(false)
-  const isWarning = verdict === 'do_not_substitute' || verdict === 'check_doctor'
+// ── Single alternative card ────────────────────────────────────────────────
+
+function AltCard({
+  alt,
+  rank,
+  isBest,
+  productId,
+  flagged,
+  onFlag,
+}: {
+  alt: Alternative
+  rank: number
+  isBest: boolean
+  productId: string
+  flagged: boolean
+  onFlag: () => void
+}) {
+  const altPPU = Number(alt.price_per_unit)
+  const isCheaper = alt.savings_per_unit > 0
+  const pct = Number(alt.savings_pct)
+  const vm = VERDICT_META[alt.verdict]
+
   return (
-    <div className={`mt-2 rounded-xl text-xs leading-relaxed px-3 py-2.5 border ${
-      isWarning ? 'bg-red-50 border-red-100 text-red-700' :
-      verdict === 'check_pharmacist' ? 'bg-amber-50 border-amber-100 text-amber-700' :
-      'bg-emerald-50 border-emerald-100 text-emerald-700'
+    <div className={`bg-white rounded-2xl overflow-hidden border transition-all ${
+      isBest ? 'border-emerald-200 shadow-md shadow-emerald-50' : 'border-gray-100 shadow-sm'
     }`}>
-      {open || explanation.length <= 100
-        ? explanation
-        : <>{explanation.slice(0, 100)}… <button onClick={() => setOpen(true)} className="font-semibold underline underline-offset-2">more</button></>
-      }
+      {/* Top accent */}
+      {isBest && (
+        <div className="bg-emerald-600 px-4 py-2 flex items-center justify-between">
+          <span className="text-white text-xs font-black uppercase tracking-widest">Best option</span>
+          <span className="text-emerald-200 text-xs font-medium">Recommended</span>
+        </div>
+      )}
+
+      <div className="p-4">
+        {/* Brand + price row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            {/* Rank dot */}
+            <div className="flex items-center gap-2 mb-1">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
+                isBest ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-400'
+              }`}>
+                {rank}
+              </div>
+              {alt.is_generic && (
+                <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-semibold">Generic</span>
+              )}
+              {alt.is_jan_aushadhi && (
+                <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-semibold">Jan Aushadhi</span>
+              )}
+            </div>
+
+            <p className="font-black text-gray-900 text-lg leading-tight">{alt.brand_name}</p>
+            <p className="text-xs text-gray-400 mt-0.5 font-medium truncate">
+              {alt.manufacturer}
+              {alt.release_type && alt.release_type !== 'IR' && (
+                <span className="ml-1.5 text-amber-600 font-semibold">{alt.release_type}</span>
+              )}
+            </p>
+          </div>
+
+          {/* Price */}
+          <div className="text-right shrink-0">
+            <p className="text-3xl font-black text-gray-900 leading-none">₹{altPPU.toFixed(2)}</p>
+            <p className="text-[10px] text-gray-400 font-medium mt-0.5">per tablet</p>
+            <div className="mt-2">
+              {isCheaper ? (
+                <span className="inline-block bg-emerald-600 text-white text-xs font-black px-3 py-1 rounded-full">
+                  Save {pct}%
+                </span>
+              ) : (
+                <span className="inline-block bg-red-50 text-red-500 text-xs font-bold px-3 py-1 rounded-full border border-red-100">
+                  +{Math.abs(pct)}% costlier
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Manufacturer + safety verdict row */}
+        <div className="flex items-center gap-2 flex-wrap mt-3">
+          <ManufacturerBadge alt={alt} />
+          <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border ${vm.color}`}>
+            {vm.icon} {vm.label}
+          </span>
+        </div>
+
+        {/* Confidence */}
+        <div className="mt-3">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">Substitution confidence</p>
+          <ConfidenceBar score={alt.confidence_score} />
+        </div>
+
+        {/* Why this is safe — collapsible */}
+        <SafetyPanel explanation={alt.explanation} verdict={alt.verdict} />
+
+        {/* Flag */}
+        <div className="mt-3 flex justify-end">
+          {flagged ? (
+            <span className="text-[10px] text-red-400 font-medium">🚩 Flagged</span>
+          ) : (
+            <button
+              onClick={onFlag}
+              className="text-[11px] text-gray-300 hover:text-red-400 transition-colors py-1 px-2 -mr-1 font-medium"
+            >
+              🚩 Wrong?
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
+// ── Main component ─────────────────────────────────────────────────────────
+
 type FilterMode = 'cheapest' | 'trusted'
 
-export default function AlternativesTable({ product, alternatives, savings }: Props) {
+export default function AlternativesTable({ product, alternatives }: Props) {
   const [showUnsafe, setShowUnsafe] = useState(false)
   const [filterMode, setFilterMode] = useState<FilterMode>('cheapest')
   const [flagged, setFlagged] = useState<Record<string, boolean>>({})
@@ -78,9 +220,9 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
   if (!alternatives.length) {
     return (
       <div className="bg-white border border-gray-100 rounded-2xl p-10 text-center shadow-sm">
-        <div className="text-3xl mb-3">🏷️</div>
-        <p className="text-gray-600 text-sm font-semibold">No alternatives found for this composition.</p>
-        <p className="text-gray-400 text-xs mt-1">This may be the only brand in our database.</p>
+        <p className="text-4xl mb-4">🔍</p>
+        <p className="text-gray-700 text-base font-bold">No alternatives found</p>
+        <p className="text-gray-400 text-sm mt-1">This may be the only brand in our database for this composition.</p>
       </div>
     )
   }
@@ -99,172 +241,56 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
   return (
     <div className="space-y-3">
 
-      {/* Savings banner */}
-      {savings ? (
-        <div className="bg-gray-900 rounded-2xl overflow-hidden">
-          <div className="px-5 pt-5 pb-4">
-            <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-3">Maximum you can save</p>
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-white text-4xl font-black tracking-tight leading-none">
-                  ₹{savings.per_month_2x.toFixed(0)}
-                  <span className="text-lg font-semibold text-gray-400 ml-1">/ month</span>
-                </p>
-                <p className="text-gray-400 text-sm mt-2">
-                  ₹{Number(savings.per_unit).toFixed(2)} less per tablet vs {savings.vs_brand}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-emerald-400 text-4xl font-black tracking-tighter leading-none">{savings.pct}%</p>
-                <p className="text-gray-500 text-xs mt-1">cheaper</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-3.5 flex items-center gap-3">
-          <span className="text-xl">✅</span>
-          <p className="text-sm text-emerald-700 font-semibold">Already the cheapest safe option in our database.</p>
-        </div>
-      )}
-
       {/* Filter toggle */}
-      <div className="flex items-center gap-1.5 p-1 bg-gray-50 border border-gray-100 rounded-xl">
-        <button
-          onClick={() => setFilterMode('cheapest')}
-          className={`flex-1 text-sm font-semibold py-2.5 rounded-lg transition-all ${
-            filterMode === 'cheapest'
-              ? 'bg-white text-gray-900 shadow-sm border border-gray-100'
-              : 'text-gray-400'
-          }`}
-        >
-          Cheapest
-        </button>
-        <button
-          onClick={() => setFilterMode('trusted')}
-          className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold py-2.5 rounded-lg transition-all ${
-            filterMode === 'trusted'
-              ? 'bg-white text-emerald-700 shadow-sm border border-emerald-100'
-              : 'text-gray-400'
-          }`}
-        >
-          🛡 Trusted
-        </button>
+      <div className="flex gap-1 p-1 bg-gray-50 border border-gray-100 rounded-xl">
+        {(['cheapest', 'trusted'] as FilterMode[]).map(mode => (
+          <button
+            key={mode}
+            onClick={() => setFilterMode(mode)}
+            className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-bold py-2.5 rounded-lg transition-all ${
+              filterMode === mode
+                ? mode === 'trusted'
+                  ? 'bg-white text-emerald-700 shadow-sm border border-emerald-100'
+                  : 'bg-white text-gray-900 shadow-sm border border-gray-100'
+                : 'text-gray-400'
+            }`}
+          >
+            {mode === 'trusted' && <span>🛡</span>}
+            {mode === 'cheapest' ? 'All options' : 'Trusted only'}
+          </button>
+        ))}
       </div>
 
-      {/* No trusted manufacturers note */}
       {filterMode === 'trusted' && filteredSafe.length === 0 && (
         <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-700 font-medium">
-          No trusted-manufacturer alternatives found. Showing all alternatives instead.
+          No WHO-GMP certified alternatives found for this composition.
         </div>
       )}
 
-      {/* No cheaper safe options */}
       {visibleSafe.length === 0 && cheaper.length === 0 && (
-        <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-4 text-sm text-gray-500 font-medium text-center">
-          No cheaper safe alternatives found.
+        <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-5 text-center">
+          <p className="text-gray-600 text-sm font-semibold">No cheaper alternatives found.</p>
         </div>
       )}
 
       {/* Alternative cards */}
-      {visibleSafe.map((alt, i) => {
-        const altPPU = Number(alt.price_per_unit)
-        const isCheaper = alt.savings_per_unit > 0
-        const isBest = i === 0 && isCheaper && alt.verdict === 'safe'
-        const pct = Number(alt.savings_pct)
-        const vm = VERDICT_META[alt.verdict]
+      {visibleSafe.map((alt, i) => (
+        <AltCard
+          key={alt.id}
+          alt={alt}
+          rank={i + 1}
+          isBest={i === 0 && alt.savings_per_unit > 0 && alt.verdict === 'safe'}
+          productId={product.id}
+          flagged={!!flagged[alt.id]}
+          onFlag={() => handleFlag(alt.id)}
+        />
+      ))}
 
-        return (
-          <div key={alt.id} className={`bg-white rounded-2xl border-l-4 border border-gray-100 overflow-hidden transition-all hover:shadow-md ${vm.borderColor}`}>
-            <div className="p-4">
-              <div className="flex items-start gap-3">
-                {/* Rank */}
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5 ${
-                  isBest ? 'bg-emerald-600 text-white' : 'bg-gray-50 text-gray-400 border border-gray-100'
-                }`}>
-                  {i + 1}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold text-gray-900">{alt.brand_name}</p>
-                        {isBest && (
-                          <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                            BEST PRICE
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5 font-medium">
-                        {alt.manufacturer} · {alt.unit_per_pack} tabs
-                        {alt.release_type && alt.release_type !== 'IR' && (
-                          <span className="ml-1.5 text-amber-600 font-semibold">{alt.release_type}</span>
-                        )}
-                      </p>
-                    </div>
-
-                    {/* Price */}
-                    <div className="text-right shrink-0">
-                      <p className="text-xl font-black text-gray-900">₹{altPPU.toFixed(2)}</p>
-                      <p className="text-[10px] text-gray-400 font-medium">per tablet</p>
-                      {isCheaper ? (
-                        <span className="inline-block mt-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-100">
-                          Save {pct}%
-                        </span>
-                      ) : (
-                        <span className="inline-block mt-1 bg-red-50 text-red-500 text-[10px] font-bold px-2 py-0.5 rounded-full border border-red-100">
-                          +{Math.abs(pct)}% costlier
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Badges row */}
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {(alt.is_generic || alt.is_jan_aushadhi) && (
-                      <>
-                        {alt.is_generic && (
-                          <span className="bg-blue-50 text-blue-600 text-[10px] px-2 py-0.5 rounded-full border border-blue-100 font-medium">Generic</span>
-                        )}
-                        {alt.is_jan_aushadhi && (
-                          <span className="bg-orange-50 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-100 font-medium">Jan Aushadhi</span>
-                        )}
-                      </>
-                    )}
-                    <ManufacturerBadge alt={alt} />
-                    <VerdictBadge verdict={alt.verdict} />
-                  </div>
-
-                  <ExplanationRow explanation={alt.explanation} verdict={alt.verdict} />
-
-                  {/* Flag */}
-                  <div className="mt-2.5 flex justify-end">
-                    {flagged[alt.id] ? (
-                      <span className="text-[10px] text-red-400 font-medium">🚩 Flagged</span>
-                    ) : (
-                      <button
-                        onClick={() => handleFlag(alt.id)}
-                        title="Flag as wrong alternative"
-                        className="text-gray-300 hover:text-red-400 transition-colors text-xs py-1 px-2 -mr-1"
-                      >
-                        🚩 Wrong?
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })}
-
-      {/* Toggle costlier */}
+      {/* Show costlier toggle */}
       {costlier.length > 0 && (
         <button
           onClick={() => setShowCostlier(v => !v)}
-          className="w-full text-center text-sm text-gray-400 font-semibold py-3 border border-gray-100 rounded-xl bg-white hover:text-gray-600 transition-colors"
+          className="w-full text-center text-sm text-gray-400 font-semibold py-3.5 border border-gray-100 rounded-xl bg-white hover:text-gray-600 active:bg-gray-50 transition-colors"
         >
           {showCostlier
             ? `Hide ${costlier.length} more expensive option${costlier.length !== 1 ? 's' : ''} ↑`
@@ -272,7 +298,7 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
         </button>
       )}
 
-      {/* Unsafe section */}
+      {/* Unsafe / do not substitute */}
       {unsafe.length > 0 && (
         <div className="space-y-2">
           <button
@@ -283,28 +309,17 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
             <span>{showUnsafe ? '↑ Hide' : 'Show anyway ↓'}</span>
           </button>
 
-          {showUnsafe && unsafe.map((alt) => {
-            const vm = VERDICT_META[alt.verdict]
-            return (
-              <div key={alt.id} className={`bg-white rounded-2xl border-l-4 border border-gray-100 p-4 opacity-80 ${vm.borderColor}`}>
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900">{alt.brand_name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{alt.manufacturer} · MRP ₹{Number(alt.mrp).toFixed(2)}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      <ManufacturerBadge alt={alt} />
-                      <VerdictBadge verdict={alt.verdict} />
-                    </div>
-                    <ExplanationRow explanation={alt.explanation} verdict={alt.verdict} />
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-gray-900">₹{Number(alt.price_per_unit).toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-400">per tablet</p>
-                  </div>
-                </div>
-              </div>
-            )
-          })}
+          {showUnsafe && unsafe.map((alt, i) => (
+            <AltCard
+              key={alt.id}
+              alt={alt}
+              rank={visibleSafe.length + i + 1}
+              isBest={false}
+              productId={product.id}
+              flagged={!!flagged[alt.id]}
+              onFlag={() => handleFlag(alt.id)}
+            />
+          ))}
         </div>
       )}
     </div>
