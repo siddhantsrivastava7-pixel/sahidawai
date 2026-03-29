@@ -16,6 +16,13 @@ function inferReleaseType(brandName: string, releaseType: string | null | undefi
   return EXTENDED_RELEASE_RE.test(brandName) ? 'SR' : 'IR'
 }
 
+// Extract the primary strength number from a brand name (e.g. "Augmentin 625" → 625)
+function extractBrandStrength(brandName: string): number | null {
+  // Match the first standalone number of 2+ digits — typically the total strength
+  const m = brandName.match(/\b(\d{2,4}(?:\.\d+)?)\b/)
+  return m ? parseFloat(m[1]) : null
+}
+
 function scoreAlternative(
   product: Product & { brand_name: string },
   alt: { brand_name: string; release_type: string; dosage_form: string },
@@ -30,6 +37,14 @@ function scoreAlternative(
   if (altRT !== productRT) {
     warnings.push('release_type_mismatch')
     score = 15
+  }
+
+  // Strength mismatch: different dose of the active ingredient (e.g. 625mg vs 375mg)
+  const productStrength = extractBrandStrength(product.brand_name)
+  const altStrength = extractBrandStrength(alt.brand_name)
+  if (productStrength !== null && altStrength !== null && productStrength !== altStrength) {
+    warnings.push('strength_mismatch')
+    score = Math.min(score, 20)
   }
 
   // Narrow therapeutic index

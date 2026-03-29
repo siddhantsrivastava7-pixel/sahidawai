@@ -26,6 +26,7 @@ export interface Product {
 
 export type SubstitutionWarning =
   | 'release_type_mismatch'
+  | 'strength_mismatch'
   | 'narrow_therapeutic_index'
   | 'critical_drug'
 

@@ -14,6 +14,11 @@ const WARNING_META = {
     detail: 'IR↔SR/XR swap can be dangerous — do not substitute without prescription.',
     color: 'text-red-600 bg-red-50 border-red-100',
   },
+  strength_mismatch: {
+    label: 'Different strength',
+    detail: 'This brand has a different dose of the active ingredient — not interchangeable without a new prescription.',
+    color: 'text-red-600 bg-red-50 border-red-100',
+  },
   narrow_therapeutic_index: {
     label: 'Narrow therapeutic index',
     detail: 'Small dose changes can cause toxicity or loss of effect. Switch only under physician supervision.',
