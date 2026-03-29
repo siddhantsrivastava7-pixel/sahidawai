@@ -181,9 +181,14 @@ export function parseComposition(text: string): ParsedComposition {
   return { ingredients, dosage_form, release_type }
 }
 
+// Format strength as a number without trailing zeros: 10.000 → "10", 2.500 → "2.5"
+function formatStrength(n: number): string {
+  return parseFloat(n.toFixed(3)).toString()
+}
+
 export function generateCanonicalKey(parsed: ParsedComposition): string {
   const ingredientPart = parsed.ingredients
-    .map(i => `${i.name}|${i.strength}${i.unit}`)
+    .map(i => `${i.name}|${formatStrength(i.strength)}${i.unit}`)
     .sort()
     .join('+')
   return `${ingredientPart}|${parsed.dosage_form}|${parsed.release_type}`
