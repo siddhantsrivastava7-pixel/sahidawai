@@ -41,6 +41,11 @@ const WARNING_META = {
     detail: 'Do not switch without physician guidance.',
     color: 'text-amber-700 bg-amber-50 border-amber-100',
   },
+  user_flagged: {
+    label: 'Flagged by users',
+    detail: 'Multiple users have reported this as a wrong alternative. Avoid substituting without checking with your pharmacist.',
+    color: 'text-red-600 bg-red-50 border-red-100',
+  },
 } as const
 
 function ConfidenceBadge({ score }: { score: number }) {
