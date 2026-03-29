@@ -6,77 +6,8 @@ type Status = 'idle' | 'loading' | 'done' | 'error'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
-const NOISE_WORDS = new Set([
-  'date', 'time', 'dose', 'dosage', 'take', 'once', 'twice', 'thrice',
-  'daily', 'weekly', 'after', 'before', 'food', 'meals', 'bedtime',
-  'morning', 'night', 'evening', 'tablet', 'tablets', 'capsule', 'capsules',
-  'syrup', 'days', 'weeks', 'months', 'refill', 'signature', 'doctor',
-  'patient', 'name', 'age', 'sex', 'male', 'female', 'address', 'phone',
-  'reg', 'registration', 'licence', 'license', 'hospital', 'clinic',
-  'unit', 'units', 'instruction', 'general', 'advice', 'notes', 'nil',
-])
-
-// Pattern A: "Name 500mg" or "Name 500 mg" (standard)
-const RE_A = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)\s*mg\b/gi
-// Pattern B: "Name (500 mg)" or "Name(500mg)" — parenthesized dose
-const RE_B = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s*\(\s*(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)\s*mg\s*\)/gi
-// Pattern C: "BrandName 625 Tablet" — brand name + bare number + tablet/cap keyword
-const RE_C = /([A-Z][A-Za-z0-9\-]{2,30}(?:\s+[A-Z][A-Za-z0-9\-]{1,20})?)\s+(\d{2,4})\s+(?:tablet|cap|capsule|syrup|drops|injection)\b/gi
-
-function cleanName(name: string): string {
-  const words = name.trim().split(/\s+/)
-  let start = 0
-  let end = words.length - 1
-  while (start <= end && NOISE_WORDS.has(words[start].toLowerCase())) start++
-  while (end >= start && NOISE_WORDS.has(words[end].toLowerCase())) end--
-  return words.slice(start, end + 1).join(' ')
-}
-
-function containsNoise(name: string): boolean {
-  return name.toLowerCase().split(/\s+/).some(w => NOISE_WORDS.has(w))
-}
-
-function tryExtract(re: RegExp, text: string, seen: Set<string>, results: string[], unitSuffix: string) {
-  re.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = re.exec(text)) !== null) {
-    const cleaned = cleanName(match[1].trim().replace(/\s+/g, ' '))
-    const strength = match[2]
-    if (cleaned.length < 3) continue
-    if (containsNoise(cleaned)) continue
-    const key = cleaned.toLowerCase()
-    if (!seen.has(key)) {
-      seen.add(key)
-      results.push(`${cleaned} ${strength}${unitSuffix}`)
-    }
-  }
-}
-
-function extractMedicines(text: string): string[] {
-  const seen = new Set<string>()
-  const results: string[] = []
-  tryExtract(RE_A, text, seen, results, 'mg')
-  tryExtract(RE_B, text, seen, results, 'mg')
-  // Pattern C: brand + bare number, no unit — search manually
-  RE_C.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = RE_C.exec(text)) !== null) {
-    const cleaned = cleanName(match[1].trim())
-    const strength = match[2]
-    if (cleaned.length < 3 || containsNoise(cleaned)) continue
-    const key = cleaned.toLowerCase()
-    if (!seen.has(key)) {
-      seen.add(key)
-      results.push(`${cleaned} ${strength}`)
-    }
-  }
-  return results
-}
-
 export default function PrescriptionUpload() {
   const [status, setStatus] = useState<Status>('idle')
-  const [progress, setProgress] = useState(0)
-  const [statusText, setStatusText] = useState('')
   const [medicines, setMedicines] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
@@ -91,35 +22,22 @@ export default function PrescriptionUpload() {
     }
 
     setStatus('loading')
-    setProgress(0)
-    setStatusText('Loading OCR engine…')
     setMedicines([])
 
+    const formData = new FormData()
+    formData.append('image', file)
+
     try {
-      // Dynamic import so Tesseract only loads when actually needed
-      const { createWorker } = await import('tesseract.js')
+      const res = await fetch('/api/ocr', { method: 'POST', body: formData })
+      const data = await res.json()
 
-      const worker = await createWorker('eng', 1, {
-        logger: (m: { status: string; progress: number }) => {
-          if (m.status === 'loading tesseract core' || m.status === 'initializing tesseract') {
-            setStatusText('Loading OCR engine…')
-            setProgress(Math.round(m.progress * 20))
-          } else if (m.status === 'loading language traineddata') {
-            setStatusText('Loading language model…')
-            setProgress(20 + Math.round(m.progress * 20))
-          } else if (m.status === 'recognizing text') {
-            setStatusText('Reading prescription…')
-            setProgress(40 + Math.round(m.progress * 60))
-          }
-        },
-      })
+      if (!res.ok || !Array.isArray(data.medicines)) {
+        setStatus('error')
+        return
+      }
 
-      const { data } = await worker.recognize(file)
-      await worker.terminate()
-
-      const found = extractMedicines(data.text)
-      setMedicines(found)
-      setStatus(found.length === 0 ? 'error' : 'done')
+      setMedicines(data.medicines)
+      setStatus(data.medicines.length === 0 ? 'error' : 'done')
     } catch {
       setStatus('error')
     }
@@ -127,8 +45,6 @@ export default function PrescriptionUpload() {
 
   const handleReset = () => {
     setStatus('idle')
-    setProgress(0)
-    setStatusText('')
     setMedicines([])
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -157,20 +73,12 @@ export default function PrescriptionUpload() {
       )}
 
       {status === 'loading' && (
-        <div className="flex flex-col items-center gap-2 w-48">
-          <div className="flex items-center gap-2 text-emerald-600 text-xs font-medium">
-            <svg className="w-3.5 h-3.5 animate-spin shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <span>{statusText} {progress > 0 ? `${progress}%` : ''}</span>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-1">
-            <div
-              className="bg-emerald-500 h-1 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+        <div className="flex items-center gap-2 text-emerald-600 text-xs font-medium">
+          <svg className="w-3.5 h-3.5 animate-spin shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          Reading prescription…
         </div>
       )}
 
