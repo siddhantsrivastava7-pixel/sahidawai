@@ -31,6 +31,8 @@ export type SubstitutionWarning =
   | 'critical_drug'
   | 'user_flagged'
 
+export type SafetyVerdict = 'safe' | 'check_pharmacist' | 'check_doctor' | 'do_not_substitute'
+
 export interface Alternative {
   id: string
   brand_name: string
@@ -48,6 +50,8 @@ export interface Alternative {
   confidence_score: number
   substitution_warnings: SubstitutionWarning[]
   is_safe_substitute: boolean
+  verdict: SafetyVerdict
+  explanation: string
 }
 
 export interface Savings {

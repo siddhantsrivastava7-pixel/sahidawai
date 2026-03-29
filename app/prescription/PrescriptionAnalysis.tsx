@@ -2,41 +2,33 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PrescriptionAnalysis, PrescriptionItem } from '@/app/api/prescription/route'
-import { SubstitutionWarning } from '@/types'
+import { VERDICT_META } from '@/lib/safety'
+import { SafetyVerdict } from '@/types'
 
-const WARNING_META: Record<SubstitutionWarning, { label: string; color: string }> = {
-  release_type_mismatch:     { label: 'Release type mismatch', color: 'text-red-600 bg-red-50 border-red-100' },
-  strength_mismatch:         { label: 'Different strength',    color: 'text-red-600 bg-red-50 border-red-100' },
-  narrow_therapeutic_index:  { label: 'NTI drug — ask doctor', color: 'text-amber-700 bg-amber-50 border-amber-100' },
-  critical_drug:             { label: 'Critical drug',         color: 'text-amber-700 bg-amber-50 border-amber-100' },
-  user_flagged:              { label: 'Flagged by users',      color: 'text-red-600 bg-red-50 border-red-100' },
-}
-
-function RiskBadge({ w }: { w: SubstitutionWarning }) {
-  const m = WARNING_META[w]
+function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
+  const m = VERDICT_META[verdict]
   return (
-    <span className={`inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border ${m.color}`}>
-      ⚠ {m.label}
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${m.color}`}>
+      {m.icon} {m.label}
     </span>
   )
 }
 
 function MedicineRow({ item }: { item: PrescriptionItem }) {
   const router = useRouter()
-  const cheapestAlt = item.alternatives?.find(a => a.is_safe_substitute && a.savings_per_unit > 0)
-    ?? item.alternatives?.find(a => a.savings_per_unit > 0)
 
-  // Collect all warnings across alternatives (to flag the medicine as risky)
-  const allWarnings = Array.from(new Set(
-    (item.alternatives ?? []).flatMap(a => a.substitution_warnings)
-  )) as SubstitutionWarning[]
+  const cheapestAlt = item.alternatives?.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
+    ?? item.alternatives?.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
 
-  const isNti = allWarnings.includes('narrow_therapeutic_index') || allWarnings.includes('critical_drug')
   const hasSavings = (item.course_savings ?? 0) > 0.5
 
+  // Overall verdict for this medicine: worst verdict among cheapest alts
+  const overallVerdict: SafetyVerdict = cheapestAlt?.verdict ?? 'safe'
+  const vm = VERDICT_META[overallVerdict]
+
   return (
-    <div className={`bg-white rounded-2xl border p-4 sm:p-5 ${isNti ? 'border-amber-100' : hasSavings ? 'border-emerald-100' : 'border-gray-100'}`}>
-      {/* Header row */}
+    <div className={`bg-white rounded-2xl border-l-4 border border-gray-100 p-4 sm:p-5 ${vm.borderColor}`}>
+      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -48,14 +40,8 @@ function MedicineRow({ item }: { item: PrescriptionItem }) {
           <p className="text-[11px] text-gray-400 mt-0.5 font-medium">
             {item.frequency_label} · {item.duration_days} days · {item.tabs_per_course} tablets
           </p>
-          {item.found && (
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              {item.product?.manufacturer}
-            </p>
-          )}
+          {item.found && <p className="text-[11px] text-gray-400 mt-0.5">{item.product?.manufacturer}</p>}
         </div>
-
-        {/* Course cost */}
         {item.found && item.course_cost !== undefined && (
           <div className="text-right shrink-0">
             <p className="text-base font-bold text-gray-900">₹{item.course_cost.toFixed(0)}</p>
@@ -64,41 +50,39 @@ function MedicineRow({ item }: { item: PrescriptionItem }) {
         )}
       </div>
 
-      {/* Savings + cheapest alt */}
+      {/* Cheapest safe alternative */}
       {item.found && hasSavings && cheapestAlt && (
-        <div className="mt-3 flex items-center justify-between bg-emerald-50 rounded-xl px-3 py-2.5 border border-emerald-100">
-          <div>
-            <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Cheapest alternative</p>
-            <p className="text-sm font-bold text-emerald-800">{cheapestAlt.brand_name}</p>
-            <p className="text-[10px] text-emerald-600">{cheapestAlt.manufacturer}</p>
+        <div className="mt-3 rounded-xl border overflow-hidden">
+          <div className="flex items-center justify-between bg-emerald-50 border-emerald-100 px-3 py-2.5">
+            <div>
+              <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Cheapest alternative</p>
+              <p className="text-sm font-bold text-emerald-800">{cheapestAlt.brand_name}</p>
+              <p className="text-[10px] text-emerald-600">{cheapestAlt.manufacturer}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-base font-black text-emerald-700">Save ₹{(item.course_savings ?? 0).toFixed(0)}</p>
+              <p className="text-[10px] text-emerald-500 mb-1">on this course</p>
+              <button
+                onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
+                className="text-[10px] text-emerald-600 font-semibold hover:underline"
+              >
+                See all →
+              </button>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-base font-black text-emerald-700">
-              Save ₹{(item.course_savings ?? 0).toFixed(0)}
-            </p>
-            <p className="text-[10px] text-emerald-500">on this course</p>
-            <button
-              onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
-              className="mt-1 text-[10px] text-emerald-600 font-semibold hover:underline"
-            >
-              See all →
-            </button>
+          {/* Safety verdict for this alternative */}
+          <div className={`px-3 py-2 text-[11px] font-medium border-t ${
+            cheapestAlt.verdict === 'safe' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'
+          }`}>
+            <VerdictBadge verdict={cheapestAlt.verdict} />
+            <p className="mt-1 leading-relaxed">{cheapestAlt.explanation}</p>
           </div>
         </div>
       )}
 
-      {/* NTI warning */}
-      {isNti && (
-        <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 text-[11px] text-amber-700 font-medium">
-          ⚠ This is a critical/NTI drug. Do not switch without your doctor&apos;s guidance.
-        </div>
-      )}
-
-      {/* Other warnings */}
-      {!isNti && allWarnings.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2.5">
-          {allWarnings.map(w => <RiskBadge key={w} w={w} />)}
-        </div>
+      {/* No safe cheaper alternative */}
+      {item.found && !hasSavings && (
+        <p className="text-[11px] text-gray-400 mt-2.5">✓ Already the cheapest or no safe alternatives found.</p>
       )}
 
       {/* Not found nudge */}
