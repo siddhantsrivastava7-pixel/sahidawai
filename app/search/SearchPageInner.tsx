@@ -41,7 +41,6 @@ export default function SearchPageInner() {
           return
         }
 
-        // Not in DB — try discovering from 1mg
         setLoading(false)
         setDiscoverStatus('searching')
 
@@ -59,7 +58,6 @@ export default function SearchPageInner() {
             return
           }
 
-          // Newly inserted — re-run search to get full result with alternatives
           const fresh = await runSearch(query)
           setResult(fresh)
           setDiscoverStatus('done')
@@ -75,61 +73,59 @@ export default function SearchPageInner() {
   }, [query])
 
   return (
-    <main className="max-w-2xl mx-auto px-4 py-8">
-      <div className="mb-7"><SearchBar /></div>
+    <main className="max-w-lg mx-auto px-4 py-6 pb-16">
+      {/* Search bar */}
+      <div className="mb-6">
+        <SearchBar />
+      </div>
 
       {/* Skeleton */}
       {loading && (
         <div className="space-y-3 animate-pulse">
-          <div className="h-52 bg-gray-50 rounded-2xl border border-gray-100" />
-          <div className="h-28 bg-emerald-50 rounded-2xl" />
-          <div className="h-16 bg-gray-50 rounded-2xl border border-gray-100" />
-          <div className="h-16 bg-gray-50 rounded-2xl border border-gray-100" />
-          <div className="h-16 bg-gray-50 rounded-2xl border border-gray-100" />
+          <div className="h-48 bg-white rounded-2xl border border-gray-100" />
+          <div className="h-24 bg-emerald-50 rounded-2xl" />
+          <div className="h-20 bg-white rounded-2xl border border-gray-100" />
+          <div className="h-20 bg-white rounded-2xl border border-gray-100" />
+          <div className="h-20 bg-white rounded-2xl border border-gray-100" />
         </div>
       )}
 
-      {/* Discovering from pharmacies */}
+      {/* Discovering */}
       {discoverStatus === 'searching' && (
         <div className="text-center py-20">
-          <div className="flex items-center justify-center gap-1.5 mb-5">
+          <div className="flex items-center justify-center gap-2 mb-5">
             {[0, 1, 2].map(i => (
-              <span
-                key={i}
-                className="w-2 h-2 rounded-full bg-emerald-500 animate-bounce"
-                style={{ animationDelay: `${i * 0.15}s` }}
-              />
+              <span key={i} className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
             ))}
           </div>
-          <h2 className="text-base font-semibold text-gray-700 mb-1">Searching pharmacies for you…</h2>
-          <p className="text-gray-400 text-xs max-w-xs mx-auto">
-            <strong className="text-gray-500">&quot;{query}&quot;</strong> isn&apos;t in our database yet.
-            We&apos;re fetching it from 1mg and adding it now.
+          <p className="text-base font-bold text-gray-800 mb-1">Searching pharmacies…</p>
+          <p className="text-sm text-gray-400 max-w-xs mx-auto leading-relaxed">
+            <strong className="text-gray-600">&ldquo;{query}&rdquo;</strong> isn&apos;t in our database yet.
+            Fetching from 1mg and adding it now.
           </p>
         </div>
       )}
 
-      {/* Discover succeeded — flash a "just added" note before showing results */}
+      {/* Just added */}
       {discoverStatus === 'done' && result?.found && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5 text-xs text-emerald-700 font-medium">
-          ✓ Added to our database — future searches will be instant.
+        <div className="mb-4 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 text-sm text-emerald-700 font-semibold flex items-center gap-2">
+          <span>✓</span> Added to our database — future searches will be instant.
         </div>
       )}
 
-      {/* Not found even after discover */}
+      {/* Not found */}
       {discoverStatus === 'failed' && (
         <div className="text-center py-20">
-          <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-gray-100">
-            <span className="text-2xl">💊</span>
-          </div>
-          <h2 className="text-lg font-bold text-gray-800 mb-2 tracking-tight">Not found anywhere</h2>
+          <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-5 border border-gray-100 text-3xl">💊</div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2 tracking-tight">Not found anywhere</h2>
           <p className="text-gray-400 text-sm mb-7 max-w-xs mx-auto leading-relaxed">
-            We searched our database and 1mg but couldn&apos;t find <strong className="text-gray-600">&quot;{query}&quot;</strong>.
+            We searched our database and 1mg but couldn&apos;t find{' '}
+            <strong className="text-gray-600">&ldquo;{query}&rdquo;</strong>.
             Try the brand name or check the spelling.
           </p>
           <button
             onClick={() => router.push('/')}
-            className="bg-emerald-600 text-white font-semibold px-5 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors text-sm"
+            className="bg-emerald-600 text-white font-bold px-6 py-3.5 rounded-xl text-sm active:bg-emerald-700"
           >
             ← Back to search
           </button>
@@ -141,7 +137,7 @@ export default function SearchPageInner() {
         <div className="space-y-5">
           <button
             onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 text-gray-400 text-sm font-medium hover:text-emerald-600 transition-colors"
+            className="flex items-center gap-1.5 text-gray-400 text-sm font-semibold hover:text-emerald-600 transition-colors py-1"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 12H5M12 5l-7 7 7 7" />
@@ -149,9 +145,10 @@ export default function SearchPageInner() {
             Search again
           </button>
 
+          {/* Product card */}
           <div>
             <div className="flex items-center justify-between mb-2.5">
-              <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase">Searched Medicine</p>
+              <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase">Your medicine</p>
               <AddToCalculatorButton
                 product={result.product}
                 cheapestAlt={result.alternatives?.find(a => a.is_safe_substitute && a.savings_per_unit > 0) ?? result.alternatives?.[0] ?? null}
@@ -160,9 +157,10 @@ export default function SearchPageInner() {
             <ProductCard product={result.product} />
           </div>
 
+          {/* Alternatives */}
           <div>
             <div className="flex items-center justify-between mb-2.5">
-              <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase">Cheaper Alternatives</p>
+              <p className="text-[10px] font-bold tracking-[0.2em] text-gray-300 uppercase">Cheaper alternatives</p>
               <span className="bg-emerald-50 text-emerald-700 text-xs font-bold px-2.5 py-1 rounded-full border border-emerald-100">
                 {result.alternatives?.length ?? 0} found
               </span>
@@ -174,10 +172,10 @@ export default function SearchPageInner() {
             />
           </div>
 
-          <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs text-gray-400 leading-relaxed">
-            <strong className="text-gray-500">Disclaimer:</strong> Bioavailability, excipients, and quality may differ across manufacturers.
-            Always switch medicines under pharmacist or physician supervision.
-          </div>
+          <p className="text-xs text-gray-400 leading-relaxed pt-1 border-t border-gray-100">
+            <strong className="text-gray-500">Disclaimer:</strong> Bioavailability and quality may differ across manufacturers.
+            Always switch under pharmacist or physician supervision.
+          </p>
         </div>
       )}
     </main>
