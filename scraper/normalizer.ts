@@ -1,4 +1,5 @@
 import { ScrapedProduct } from './types'
+import { parseComposition, generateCanonicalKey } from '../lib/composition-engine'
 
 // Deduplicate by brand_name + mrp + source, keep the most data-rich version
 export function deduplicateProducts(products: ScrapedProduct[]): ScrapedProduct[] {
@@ -20,21 +21,29 @@ export function deduplicateProducts(products: ScrapedProduct[]): ScrapedProduct[
   return Array.from(seen.values())
 }
 
-// Build canonical key from composition
+// Build canonical key from composition using the composition engine.
+// This produces the same format as lib/composition-engine.ts so that
+// scraper-inserted products are found as alternatives of DB products and vice versa.
 export function buildCanonicalKey(composition: string, dosageForm: string): string {
-  // Strip dose amounts to group by ingredient only for canonical key
-  const normalized = composition
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, '')
-    .replace(/\d+(\.\d+)?\s*(mg|mcg|iu|g|ml|%)/gi, '')
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_+]/g, '')
-    .replace(/_+/g, '_')
-    .trim()
-    .replace(/^_|_$/g, '')
-
-  const form = dosageForm.toLowerCase().replace(/\s+/g, '_')
-  return `${normalized}_${form}`
+  try {
+    const parsed = parseComposition(composition)
+    if (parsed.ingredients.length === 0) throw new Error('no ingredients parsed')
+    // composition-engine infers dosage_form from the text; override with the
+    // explicit value we have from the scraper if it's more specific.
+    if (dosageForm && dosageForm !== 'tablet') {
+      parsed.dosage_form = dosageForm.toLowerCase()
+    }
+    return generateCanonicalKey(parsed)
+  } catch {
+    // Fallback: slug the raw composition (avoids collisions better than the old
+    // strength-stripping approach, but still not ideal — this path should be rare).
+    return composition
+      .toLowerCase()
+      .replace(/[^a-z0-9+]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 120)
+  }
 }
 
 // Infer dosage form from brand name if not already set

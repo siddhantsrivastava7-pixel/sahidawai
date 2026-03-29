@@ -129,19 +129,12 @@ async function upsertPrescriber(signals: PrescriberSignals): Promise<string | nu
 
   const prescriber_id = hashPrescriber(signals.doctor_name, signals.city)
 
-  await supabaseAdmin.from('prescriber_profiles').upsert({
-    prescriber_id,
-    city: signals.city,
-    speciality_hint: signals.speciality_hint,
-    last_seen_at: new Date().toISOString(),
-    prescription_count: 1,
-  }, {
-    onConflict: 'prescriber_id',
-    ignoreDuplicates: false,
+  // Single atomic increment — never resets the count to 1 on conflict
+  await supabaseAdmin.rpc('upsert_prescriber', {
+    p_id: prescriber_id,
+    p_city: signals.city,
+    p_speciality: signals.speciality_hint ?? null,
   })
-
-  // Increment prescription count separately (upsert doesn't support increments)
-  await supabaseAdmin.rpc('increment_prescriber_count', { p_id: prescriber_id }).maybeSingle()
 
   return prescriber_id
 }
