@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { Product, Alternative } from '@/types'
 import { assessSafety } from '@/lib/safety'
+import { inferConditions, ConditionHint } from '@/lib/conditions'
 
 const client = new Anthropic()
 
@@ -16,19 +17,32 @@ export interface PrescriptionItem {
   tabs_per_day: number
   duration_days: number
   tabs_per_course: number
+  is_chronic: boolean       // duration >= 25 days → chronic, monthly cost matters
   found: boolean
   product?: Product
   alternatives?: Alternative[]
+  // Course cost (prescribed duration)
   course_cost?: number
   cheapest_course_cost?: number
   course_savings?: number
+  // Monthly cost (30-day projection — always shown)
+  monthly_cost?: number
+  cheapest_monthly_cost?: number
+  monthly_savings?: number
 }
 
 export interface PrescriptionAnalysis {
   items: PrescriptionItem[]
+  conditions: ConditionHint[]             // inferred from all ingredients
+  is_chronic_prescription: boolean        // any chronic medicine?
+  // Course totals (actual prescribed duration)
   total_current_cost: number
   total_cheapest_cost: number
   total_savings: number
+  // Monthly totals (30-day projection)
+  total_monthly_current: number
+  total_monthly_cheapest: number
+  total_monthly_savings: number
 }
 
 // ── Anonymization ──────────────────────────────────────────────────────────
@@ -138,7 +152,10 @@ async function storePrescriptionEvents(
   items: PrescriptionItem[],
   prescriberId: string | null,
   sessionId: string,
+  conditions: ConditionHint[],
 ) {
+  const conditionNames = conditions.map(c => c.condition).join(', ') || null
+
   const rows = items
     .filter(i => i.found && i.product)
     .map(i => {
@@ -162,6 +179,11 @@ async function storePrescriptionEvents(
         cost_premium_pct,
         is_cheapest: !cheapestAlt || ppu <= (cheapest_safe_ppu ?? ppu),
         verdict: cheapestAlt?.verdict ?? 'safe',
+        monthly_cost: i.monthly_cost ?? null,
+        cheapest_monthly_cost: i.cheapest_monthly_cost ?? null,
+        monthly_savings: i.monthly_savings ?? null,
+        is_chronic: i.is_chronic,
+        condition_hint: conditionNames,
         session_id: sessionId,
       }
     })
@@ -228,6 +250,8 @@ async function searchMedicine(
 
   const ppu = Number(product.price_per_unit)
   const course_cost = ppu * tabs
+  const monthly_cost = ppu * med.tabs_per_day * 30
+  const is_chronic = med.duration_days >= 25
 
   const cheapestSafe = alternatives.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
     ?? alternatives.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
@@ -236,8 +260,22 @@ async function searchMedicine(
   const cheapest_ppu = cheapestSafe ? Number(cheapestSafe.price_per_unit) : ppu
   const cheapest_course_cost = cheapest_ppu * tabs
   const course_savings = course_cost - cheapest_course_cost
+  const cheapest_monthly_cost = cheapest_ppu * med.tabs_per_day * 30
+  const monthly_savings = monthly_cost - cheapest_monthly_cost
 
-  return { ...base, found: true, product, alternatives, course_cost, cheapest_course_cost, course_savings }
+  return {
+    ...base,
+    is_chronic,
+    found: true,
+    product,
+    alternatives,
+    course_cost,
+    cheapest_course_cost,
+    course_savings,
+    monthly_cost,
+    cheapest_monthly_cost,
+    monthly_savings,
+  }
 }
 
 // ── Route handler ──────────────────────────────────────────────────────────
@@ -268,22 +306,39 @@ export async function POST(req: NextRequest) {
   const sessionId = Math.random().toString(36).slice(2)
   const items = await Promise.all(medicines.slice(0, 8).map(m => searchMedicine(m, ntiNames)))
 
-  // Step 4: aggregate totals
+  // Step 4: aggregate totals + infer conditions
   const found = items.filter(i => i.found)
+
   const total_current_cost = found.reduce((s, i) => s + (i.course_cost ?? 0), 0)
   const total_cheapest_cost = found.reduce((s, i) => s + (i.cheapest_course_cost ?? 0), 0)
   const total_savings = total_current_cost - total_cheapest_cost
 
+  const total_monthly_current = found.reduce((s, i) => s + (i.monthly_cost ?? 0), 0)
+  const total_monthly_cheapest = found.reduce((s, i) => s + (i.cheapest_monthly_cost ?? 0), 0)
+  const total_monthly_savings = total_monthly_current - total_monthly_cheapest
+
+  // Collect all ingredient names for condition inference
+  const allIngredients = found.flatMap(i =>
+    (i.product?.ingredients ?? []).map(ing => ing.ingredient)
+  )
+  const conditions = inferConditions(allIngredients)
+  const is_chronic_prescription = conditions.some(c => c.chronic) || found.some(i => i.is_chronic)
+
   // Step 5: store behavior data (fire-and-forget — never blocks response)
   void (async () => {
     const prescriberId = await upsertPrescriber(prescriber)
-    await storePrescriptionEvents(items, prescriberId, sessionId)
+    await storePrescriptionEvents(items, prescriberId, sessionId, conditions)
   })()
 
   return NextResponse.json({
     items,
+    conditions,
+    is_chronic_prescription,
     total_current_cost,
     total_cheapest_cost,
     total_savings,
+    total_monthly_current,
+    total_monthly_cheapest,
+    total_monthly_savings,
   } satisfies PrescriptionAnalysis)
 }

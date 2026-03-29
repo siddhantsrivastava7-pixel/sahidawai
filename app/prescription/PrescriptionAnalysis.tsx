@@ -5,6 +5,8 @@ import { PrescriptionAnalysis, PrescriptionItem } from '@/app/api/prescription/r
 import { VERDICT_META } from '@/lib/safety'
 import { SafetyVerdict } from '@/types'
 
+// ── Small components ────────────────────────────────────────────────────────
+
 function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
   const m = VERDICT_META[verdict]
   return (
@@ -14,25 +16,159 @@ function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
   )
 }
 
+// ── Monthly cost hero banner ─────────────────────────────────────────────────
+
+function MonthlyCostHero({ analysis }: { analysis: PrescriptionAnalysis }) {
+  const { total_monthly_current, total_monthly_cheapest, total_monthly_savings, is_chronic_prescription, conditions } = analysis
+  const hasSavings = total_monthly_savings > 1
+  const savingsPct = total_monthly_current > 0
+    ? Math.round((total_monthly_savings / total_monthly_current) * 100)
+    : 0
+
+  return (
+    <div className="space-y-2.5">
+      {/* Condition tags */}
+      {conditions.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {conditions.map(c => (
+            <span key={c.condition} className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border ${
+              c.chronic ? 'bg-blue-50 border-blue-100 text-blue-700' : 'bg-gray-50 border-gray-100 text-gray-600'
+            }`}>
+              {c.emoji} {c.condition}
+              {c.chronic && <span className="text-[9px] font-bold text-blue-500 uppercase tracking-wide ml-0.5">Chronic</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Monthly cost card */}
+      {is_chronic_prescription ? (
+        <div className="relative rounded-2xl overflow-hidden">
+          {/* Current cost header */}
+          <div className="bg-gray-900 px-5 pt-5 pb-4">
+            <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1">
+              Your monthly medicine cost
+            </p>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-white text-4xl font-black tracking-tight">
+                  ₹{total_monthly_current.toFixed(0)}
+                  <span className="text-xl font-semibold text-gray-400"> / month</span>
+                </p>
+                {hasSavings && (
+                  <p className="text-gray-400 text-sm mt-1">
+                    at current brands
+                  </p>
+                )}
+              </div>
+              {hasSavings && (
+                <div className="text-right">
+                  <div className="inline-flex items-center gap-1 bg-red-500/20 text-red-400 text-xs font-bold px-2.5 py-1 rounded-full border border-red-500/30">
+                    Overpaying
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Arrow + savings */}
+          {hasSavings && (
+            <div className="relative bg-gradient-to-br from-emerald-600 to-emerald-500 px-5 py-4">
+              <div className="absolute -top-3 left-5 w-6 h-6 bg-emerald-600 rotate-45" />
+              <p className="text-emerald-200 text-[10px] font-bold uppercase tracking-widest mb-1 relative">
+                Switch to cheaper alternatives →
+              </p>
+              <div className="flex items-end justify-between gap-4 relative">
+                <div>
+                  <p className="text-white text-4xl font-black tracking-tight">
+                    ₹{total_monthly_cheapest.toFixed(0)}
+                    <span className="text-xl font-semibold text-emerald-200"> / month</span>
+                  </p>
+                  <p className="text-emerald-200 text-sm mt-1">
+                    Save <strong className="text-white">₹{total_monthly_savings.toFixed(0)}</strong> every month
+                    · <strong className="text-white">₹{(total_monthly_savings * 12).toFixed(0)}</strong> a year
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-white text-5xl font-black tracking-tighter leading-none">{savingsPct}%</p>
+                  <p className="text-emerald-200 text-xs font-medium">cheaper</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!hasSavings && (
+            <div className="bg-emerald-600 px-5 py-3">
+              <p className="text-emerald-100 text-sm font-semibold">
+                ✓ You&apos;re already on the most cost-effective options.
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        // Acute prescription: show course total only
+        hasSavings && (
+          <div className="relative bg-gradient-to-br from-emerald-700 to-emerald-500 rounded-2xl p-5 overflow-hidden">
+            <div className="absolute inset-0 opacity-[0.07]"
+              style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }} />
+            <div className="relative flex items-end justify-between gap-4 flex-wrap">
+              <div>
+                <p className="text-emerald-200 text-xs font-semibold uppercase tracking-widest mb-1">
+                  Total prescription savings
+                </p>
+                <p className="text-white text-3xl font-black tracking-tight">
+                  ₹{analysis.total_savings.toFixed(0)}
+                  <span className="text-lg font-semibold text-emerald-200"> saved</span>
+                </p>
+                <div className="flex items-center gap-4 mt-2 text-sm">
+                  <div>
+                    <p className="text-emerald-300 text-[10px] font-medium uppercase">Currently</p>
+                    <p className="text-white font-bold">₹{analysis.total_current_cost.toFixed(0)}</p>
+                  </div>
+                  <div className="text-emerald-400 font-bold">→</div>
+                  <div>
+                    <p className="text-emerald-300 text-[10px] font-medium uppercase">With alts</p>
+                    <p className="text-white font-bold">₹{analysis.total_cheapest_cost.toFixed(0)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-white text-5xl font-black tracking-tighter leading-none">{savingsPct}%</p>
+                <p className="text-emerald-300 text-xs font-medium">cheaper</p>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+
+// ── Per-medicine row ─────────────────────────────────────────────────────────
+
 function MedicineRow({ item }: { item: PrescriptionItem }) {
   const router = useRouter()
 
   const cheapestAlt = item.alternatives?.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
     ?? item.alternatives?.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
 
-  const hasSavings = (item.course_savings ?? 0) > 0.5
-
-  // Overall verdict for this medicine: worst verdict among cheapest alts
-  const overallVerdict: SafetyVerdict = cheapestAlt?.verdict ?? 'safe'
-  const vm = VERDICT_META[overallVerdict]
+  const hasSavings = (item.monthly_savings ?? 0) > 0.5 || (item.course_savings ?? 0) > 0.5
+  const vm = cheapestAlt ? VERDICT_META[cheapestAlt.verdict] : VERDICT_META['safe']
 
   return (
-    <div className={`bg-white rounded-2xl border-l-4 border border-gray-100 p-4 sm:p-5 ${vm.borderColor}`}>
+    <div className={`bg-white rounded-2xl border-l-4 border border-gray-100 p-4 sm:p-5 ${
+      cheapestAlt ? vm.borderColor : 'border-l-gray-200'
+    }`}>
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-bold text-gray-900 text-sm">{item.name}</p>
+            {item.is_chronic && (
+              <span className="text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-wide">
+                Chronic
+              </span>
+            )}
             {!item.found && (
               <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full font-medium">Not in database</span>
             )}
@@ -42,37 +178,56 @@ function MedicineRow({ item }: { item: PrescriptionItem }) {
           </p>
           {item.found && <p className="text-[11px] text-gray-400 mt-0.5">{item.product?.manufacturer}</p>}
         </div>
-        {item.found && item.course_cost !== undefined && (
+
+        {/* Cost column */}
+        {item.found && (
           <div className="text-right shrink-0">
-            <p className="text-base font-bold text-gray-900">₹{item.course_cost.toFixed(0)}</p>
-            <p className="text-[10px] text-gray-400 font-medium">for course</p>
+            {item.is_chronic && item.monthly_cost !== undefined ? (
+              <>
+                <p className="text-base font-bold text-gray-900">₹{item.monthly_cost.toFixed(0)}</p>
+                <p className="text-[10px] text-gray-400 font-medium">/ month</p>
+                <p className="text-[10px] text-gray-300 mt-0.5">₹{item.course_cost?.toFixed(0)} for course</p>
+              </>
+            ) : (
+              <>
+                <p className="text-base font-bold text-gray-900">₹{item.course_cost?.toFixed(0)}</p>
+                <p className="text-[10px] text-gray-400 font-medium">for course</p>
+              </>
+            )}
           </div>
         )}
       </div>
 
-      {/* Cheapest safe alternative */}
+      {/* Cheapest alternative */}
       {item.found && hasSavings && cheapestAlt && (
         <div className="mt-3 rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between bg-emerald-50 border-emerald-100 px-3 py-2.5">
             <div>
-              <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Cheapest alternative</p>
+              <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Cheapest safe alternative</p>
               <p className="text-sm font-bold text-emerald-800">{cheapestAlt.brand_name}</p>
               <p className="text-[10px] text-emerald-600">{cheapestAlt.manufacturer}</p>
             </div>
             <div className="text-right">
-              <p className="text-base font-black text-emerald-700">Save ₹{(item.course_savings ?? 0).toFixed(0)}</p>
-              <p className="text-[10px] text-emerald-500 mb-1">on this course</p>
+              {item.is_chronic && item.monthly_savings !== undefined ? (
+                <>
+                  <p className="text-base font-black text-emerald-700">Save ₹{item.monthly_savings.toFixed(0)}/mo</p>
+                  <p className="text-[10px] text-emerald-500">₹{(item.monthly_savings * 12).toFixed(0)}/year</p>
+                </>
+              ) : (
+                <p className="text-base font-black text-emerald-700">Save ₹{item.course_savings?.toFixed(0)}</p>
+              )}
               <button
                 onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
-                className="text-[10px] text-emerald-600 font-semibold hover:underline"
+                className="mt-1 text-[10px] text-emerald-600 font-semibold hover:underline block"
               >
                 See all →
               </button>
             </div>
           </div>
-          {/* Safety verdict for this alternative */}
           <div className={`px-3 py-2 text-[11px] font-medium border-t ${
-            cheapestAlt.verdict === 'safe' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'
+            cheapestAlt.verdict === 'safe'
+              ? 'bg-emerald-50 border-emerald-100 text-emerald-700'
+              : 'bg-amber-50 border-amber-100 text-amber-700'
           }`}>
             <VerdictBadge verdict={cheapestAlt.verdict} />
             <p className="mt-1 leading-relaxed">{cheapestAlt.explanation}</p>
@@ -80,12 +235,10 @@ function MedicineRow({ item }: { item: PrescriptionItem }) {
         </div>
       )}
 
-      {/* No safe cheaper alternative */}
       {item.found && !hasSavings && (
-        <p className="text-[11px] text-gray-400 mt-2.5">✓ Already the cheapest or no safe alternatives found.</p>
+        <p className="text-[11px] text-gray-400 mt-2.5">✓ Already cheapest or no safe alternatives found.</p>
       )}
 
-      {/* Not found nudge */}
       {!item.found && (
         <button
           onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
@@ -98,50 +251,7 @@ function MedicineRow({ item }: { item: PrescriptionItem }) {
   )
 }
 
-function SavingsSummary({ analysis }: { analysis: PrescriptionAnalysis }) {
-  const savingsPct = analysis.total_current_cost > 0
-    ? (analysis.total_savings / analysis.total_current_cost * 100).toFixed(0)
-    : '0'
-
-  if (analysis.total_savings < 1) return null
-
-  return (
-    <div className="relative bg-gradient-to-br from-emerald-700 to-emerald-500 rounded-2xl p-5 overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-[0.07]"
-        style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '18px 18px' }}
-      />
-      <div className="relative">
-        <p className="text-emerald-200 text-xs font-semibold uppercase tracking-widest mb-2">
-          Total prescription savings
-        </p>
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-white text-4xl font-black tracking-tight">
-              ₹{analysis.total_savings.toFixed(0)}
-              <span className="text-lg font-semibold text-emerald-200"> saved</span>
-            </p>
-            <div className="flex items-center gap-4 mt-2 text-sm">
-              <div>
-                <p className="text-emerald-300 text-[10px] font-medium uppercase tracking-wide">Currently paying</p>
-                <p className="text-white font-bold">₹{analysis.total_current_cost.toFixed(0)}</p>
-              </div>
-              <div className="text-emerald-400">→</div>
-              <div>
-                <p className="text-emerald-300 text-[10px] font-medium uppercase tracking-wide">With alternatives</p>
-                <p className="text-white font-bold">₹{analysis.total_cheapest_cost.toFixed(0)}</p>
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <p className="text-white text-5xl font-black tracking-tighter leading-none">{savingsPct}%</p>
-            <p className="text-emerald-300 text-xs font-medium mt-0.5">cheaper</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+// ── Page ────────────────────────────────────────────────────────────────────
 
 type Status = 'idle' | 'loading' | 'done' | 'error'
 
@@ -154,7 +264,6 @@ export default function PrescriptionAnalysisPage() {
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     setStatus('loading')
     setAnalysis(null)
     setErrorMsg('')
@@ -165,13 +274,11 @@ export default function PrescriptionAnalysisPage() {
     try {
       const res = await fetch('/api/prescription', { method: 'POST', body: formData })
       const data = await res.json()
-
       if (!res.ok || !data.items) {
         setErrorMsg(data.error ?? 'Could not read prescription.')
         setStatus('error')
         return
       }
-
       setAnalysis(data)
       setStatus('done')
     } catch {
@@ -180,27 +287,24 @@ export default function PrescriptionAnalysisPage() {
     }
   }
 
-  const reset = () => {
-    setStatus('idle')
-    setAnalysis(null)
-    if (inputRef.current) inputRef.current.value = ''
-  }
+  const reset = () => { setStatus('idle'); setAnalysis(null); if (inputRef.current) inputRef.current.value = '' }
 
   return (
     <div className="min-h-screen bg-gray-50/50">
       <div className="max-w-2xl mx-auto px-4 py-10">
+
         {/* Header */}
         <div className="mb-8">
           <p className="text-[10px] font-bold tracking-[0.2em] text-emerald-600 uppercase mb-2">Prescription Intelligence</p>
           <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Full Prescription Breakdown</h1>
           <p className="text-gray-400 text-sm mt-1.5">
-            Upload your prescription. We analyse every medicine, find cheaper alternatives, and show your total savings.
+            Upload your prescription — we extract every medicine, calculate your monthly spend, and find safer cheaper alternatives.
           </p>
         </div>
 
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
 
-        {/* Upload prompt */}
+        {/* Upload */}
         {status === 'idle' && (
           <button
             onClick={() => inputRef.current?.click()}
@@ -216,6 +320,14 @@ export default function PrescriptionAnalysisPage() {
               <p className="text-sm font-semibold text-gray-700 group-hover:text-emerald-700">Upload prescription photo</p>
               <p className="text-xs text-gray-400 mt-0.5">JPG, PNG, WebP · Max 10 MB</p>
             </div>
+            <div className="flex items-center gap-4 mt-1">
+              {['Monthly cost', 'Safer alternatives', 'Condition insights'].map(f => (
+                <div key={f} className="flex items-center gap-1 text-[10px] text-gray-300 font-medium">
+                  <div className="w-1 h-1 rounded-full bg-emerald-300" />
+                  {f}
+                </div>
+              ))}
+            </div>
           </button>
         )}
 
@@ -230,13 +342,10 @@ export default function PrescriptionAnalysisPage() {
               </div>
               <div className="text-center">
                 <p className="text-sm font-semibold text-gray-700">Analysing prescription…</p>
-                <p className="text-xs text-gray-400 mt-0.5">Reading medicines · Finding alternatives · Calculating savings</p>
+                <p className="text-xs text-gray-400 mt-0.5">Reading medicines · Calculating monthly costs · Finding alternatives</p>
               </div>
             </div>
-            {/* Skeleton cards */}
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-24 bg-white rounded-2xl border border-gray-100 animate-pulse" />
-            ))}
+            {[1, 2, 3].map(i => <div key={i} className="h-24 bg-white rounded-2xl border border-gray-100 animate-pulse" />)}
           </div>
         )}
 
@@ -254,24 +363,23 @@ export default function PrescriptionAnalysisPage() {
         {/* Results */}
         {status === 'done' && analysis && (
           <div className="space-y-3">
-            <SavingsSummary analysis={analysis} />
+            {/* Monthly cost hero */}
+            <MonthlyCostHero analysis={analysis} />
 
             <div className="flex items-center justify-between py-1">
               <p className="text-[10px] font-bold tracking-[0.2em] text-gray-400 uppercase">
-                {analysis.items.length} Medicine{analysis.items.length !== 1 ? 's' : ''} Found
+                {analysis.items.length} Medicine{analysis.items.length !== 1 ? 's' : ''}
               </p>
               <button onClick={reset} className="text-xs text-gray-400 hover:text-gray-600 transition-colors font-medium">
                 ↺ Upload another
               </button>
             </div>
 
-            {analysis.items.map((item, i) => (
-              <MedicineRow key={i} item={item} />
-            ))}
+            {analysis.items.map((item, i) => <MedicineRow key={i} item={item} />)}
 
             <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs text-gray-400 leading-relaxed mt-2">
               <strong className="text-gray-500">Disclaimer:</strong> Always switch medicines under pharmacist or physician supervision.
-              Bioavailability and excipients may differ across manufacturers.
+              Monthly costs are estimated at 30 days × prescribed daily dose.
             </div>
           </div>
         )}
