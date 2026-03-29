@@ -130,7 +130,7 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
         return (
           <div
             key={alt.id}
-            className={`relative bg-white rounded-2xl border p-4 transition-all duration-150 hover:shadow-md
+            className={`bg-white rounded-2xl border p-4 transition-all duration-150 hover:shadow-md
               ${isBest
                 ? 'border-emerald-200 shadow-[0_2px_12px_rgba(16,185,129,0.08)]'
                 : hasWarnings
@@ -139,22 +139,6 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
               }`}
           >
             <div className="flex items-start gap-4">
-              {/* Flag feedback */}
-              <div className="absolute top-3 right-3">
-                {flagged[alt.id] ? (
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${flagged[alt.id] === 'wrong' ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'}`}>
-                    {flagged[alt.id] === 'wrong' ? '🚩 Flagged' : '✓ Confirmed'}
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleFlag(alt.id, 'flagged_wrong')}
-                    title="Flag as wrong alternative"
-                    className="text-gray-200 hover:text-red-400 transition-colors text-sm"
-                  >
-                    🚩
-                  </button>
-                )}
-              </div>
               {/* Rank */}
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5
                 ${isBest ? 'bg-emerald-600 text-white' : hasWarnings ? 'bg-red-50 text-red-400' : i < 3 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-400'}`}>
@@ -217,6 +201,21 @@ export default function AlternativesTable({ product, alternatives, savings }: Pr
                     +{Math.abs(pct)}% costlier
                   </span>
                 )}
+                <div className="mt-2">
+                  {flagged[alt.id] ? (
+                    <span className={`text-[10px] font-medium ${flagged[alt.id] === 'wrong' ? 'text-red-400' : 'text-emerald-600'}`}>
+                      {flagged[alt.id] === 'wrong' ? '🚩 Flagged' : '✓ Confirmed'}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => handleFlag(alt.id, 'flagged_wrong')}
+                      title="Flag as wrong alternative"
+                      className="text-gray-200 hover:text-red-400 transition-colors text-xs"
+                    >
+                      🚩 Wrong?
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
