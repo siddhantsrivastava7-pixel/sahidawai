@@ -2,13 +2,6 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { Product, SubstitutionWarning } from '@/types'
 
-// Narrow therapeutic index drugs — substitution requires physician oversight
-const NTI_DRUGS = [
-  'warfarin', 'digoxin', 'phenytoin', 'carbamazepine', 'valproate',
-  'lithium', 'cyclosporine', 'tacrolimus', 'levothyroxine', 'thyroxine',
-  'theophylline', 'methotrexate', 'clonidine', 'amiodarone',
-]
-
 const EXTENDED_RELEASE_RE = /\b(SR|XR|ER|CR|LA|CD|TR|MR|RETARD|PROLONGED)\b/i
 
 function inferReleaseType(brandName: string, releaseType: string | null | undefined): string {
@@ -16,30 +9,68 @@ function inferReleaseType(brandName: string, releaseType: string | null | undefi
   return EXTENDED_RELEASE_RE.test(brandName) ? 'SR' : 'IR'
 }
 
-// Extract the primary strength number from a brand name (e.g. "Augmentin 625" → 625)
 function extractBrandStrength(brandName: string): number | null {
-  // Match the first standalone number of 2+ digits — typically the total strength
   const m = brandName.match(/\b(\d{2,4}(?:\.\d+)?)\b/)
   return m ? parseFloat(m[1]) : null
 }
 
+// Fetch KG signals for a product and all its alternatives in one round-trip each
+async function fetchKgSignals(productId: string, alternativeIds: string[]) {
+  const allIds = [productId, ...alternativeIds]
+
+  const [flagsRes, ntiRes] = await Promise.all([
+    // How many users flagged each alternative as wrong for this product?
+    supabaseAdmin
+      .from('kg_search_feedback')
+      .select('alternative_id')
+      .eq('product_id', productId)
+      .eq('action', 'flagged_wrong')
+      .in('alternative_id', alternativeIds),
+
+    // Which ingredient names are NTI/critical in the KG?
+    supabaseAdmin
+      .from('kg_ingredients')
+      .select('name, is_nti, is_critical')
+      .or('is_nti.eq.true,is_critical.eq.true'),
+  ])
+
+  // Count flags per alternative
+  const flagCount: Record<string, number> = {}
+  for (const row of flagsRes.data ?? []) {
+    flagCount[row.alternative_id] = (flagCount[row.alternative_id] ?? 0) + 1
+  }
+
+  // Build sets for fast lookup
+  const ntiNames = new Set((ntiRes.data ?? []).filter(r => r.is_nti).map(r => r.name))
+  const criticalNames = new Set((ntiRes.data ?? []).filter(r => r.is_critical).map(r => r.name))
+
+  return { flagCount, ntiNames, criticalNames }
+}
+
 function scoreAlternative(
   product: Product & { brand_name: string },
-  alt: { brand_name: string; release_type: string; dosage_form: string },
+  alt: { id: string; brand_name: string; release_type: string; dosage_form: string },
+  kgSignals: { flagCount: Record<string, number>; ntiNames: Set<string>; criticalNames: Set<string> },
 ) {
   const warnings: SubstitutionWarning[] = []
   let score = 95
 
-  // Release type mismatch: IR↔SR/XR/CR/ER is never safe to substitute unilaterally
-  // Fall back to name-based inference when the DB column is empty
+  // User-flagged: 3+ flags from real users → almost certainly wrong
+  const flags = kgSignals.flagCount[alt.id] ?? 0
+  if (flags >= 3) {
+    warnings.push('user_flagged')
+    score = 5
+  }
+
+  // Release type mismatch
   const productRT = inferReleaseType(product.brand_name, product.release_type)
   const altRT = inferReleaseType(alt.brand_name, alt.release_type)
   if (altRT !== productRT) {
     warnings.push('release_type_mismatch')
-    score = 15
+    score = Math.min(score, 15)
   }
 
-  // Strength mismatch: different dose of the active ingredient (e.g. 625mg vs 375mg)
+  // Strength mismatch
   const productStrength = extractBrandStrength(product.brand_name)
   const altStrength = extractBrandStrength(alt.brand_name)
   if (productStrength !== null && altStrength !== null && productStrength !== altStrength) {
@@ -47,15 +78,20 @@ function scoreAlternative(
     score = Math.min(score, 20)
   }
 
-  // Narrow therapeutic index
+  // NTI — from KG (live) + composition text fallback
   const compLower = product.composition_text_raw.toLowerCase()
-  if (NTI_DRUGS.some(d => compLower.includes(d))) {
+  const ingredientNames = (product.ingredients ?? []).map(i => i.ingredient.toLowerCase().trim())
+  const isNti = ingredientNames.some(n => kgSignals.ntiNames.has(n))
+    || compLower.split(/[\s,+]+/).some(w => kgSignals.ntiNames.has(w))
+  if (isNti) {
     warnings.push('narrow_therapeutic_index')
     score = Math.min(score, 55)
   }
 
-  // Critical ingredient flagged in DB
-  if (product.ingredients?.some(i => i.is_critical)) {
+  // Critical — from KG (live)
+  const isCritical = ingredientNames.some(n => kgSignals.criticalNames.has(n))
+    || product.ingredients?.some(i => i.is_critical)
+  if (isCritical) {
     warnings.push('critical_drug')
     score = Math.min(score, 50)
   }
@@ -98,10 +134,13 @@ export async function POST(req: NextRequest) {
 
     if (altErr) return NextResponse.json({ error: altErr.message }, { status: 500 })
 
+    const altIds = (rawAlternatives ?? []).map((a: any) => a.id)
+    const kgSignals = await fetchKgSignals(product.id, altIds)
+
     // Enrich each alternative with confidence score + safety warnings
     const alternatives = (rawAlternatives ?? []).map((alt: any) => ({
       ...alt,
-      ...scoreAlternative(product, alt),
+      ...scoreAlternative(product, alt, kgSignals),
     }))
 
     // Savings banner uses cheapest SAFE alternative

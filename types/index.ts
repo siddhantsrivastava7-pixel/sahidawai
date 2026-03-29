@@ -29,6 +29,7 @@ export type SubstitutionWarning =
   | 'strength_mismatch'
   | 'narrow_therapeutic_index'
   | 'critical_drug'
+  | 'user_flagged'
 
 export interface Alternative {
   id: string
