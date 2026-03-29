@@ -1,7 +1,18 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/ratelimit'
+
+const FEEDBACK_LIMIT = 20 // requests per IP per minute
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  if (!checkRateLimit(ip, FEEDBACK_LIMIT)) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: rateLimitHeaders(ip, FEEDBACK_LIMIT) },
+    )
+  }
+
   try {
     const { product_id, alternative_id, action, reason, note, session_id, query } = await req.json()
 

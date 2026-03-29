@@ -61,13 +61,22 @@ export const VERDICT_META: Record<SafetyVerdict, {
 
 const EXTENDED_RELEASE_RE = /\b(SR|XR|ER|CR|LA|CD|TR|MR|RETARD|PROLONGED)\b/i
 
-export function inferReleaseType(brandName: string, rt: string | null | undefined): string {
+export function inferReleaseType(
+  brandName: string,
+  rt: string | null | undefined,
+  compositionRaw?: string,
+): string {
   if (rt?.trim()) return rt.trim().toUpperCase()
-  return EXTENDED_RELEASE_RE.test(brandName) ? 'SR' : 'IR'
+  if (EXTENDED_RELEASE_RE.test(brandName)) return 'SR'
+  // Check composition text for SR/ER phrases (e.g. "Metoprolol Succinate")
+  const comp = (compositionRaw ?? '').toLowerCase()
+  if (/sustained.release|extended.release|modified.release|controlled.release|prolonged.release|succinate/.test(comp)) return 'SR'
+  return 'IR'
 }
 
 export function extractStrength(name: string): number | null {
-  const m = name.match(/\b(\d{2,4}(?:\.\d+)?)\b/)
+  // Require a dose unit suffix to avoid matching B12, Q10, pack sizes, etc.
+  const m = name.match(/\b(\d+(?:\.\d+)?)\s*(?:mg|mcg|µg|g\b|iu)\b/i)
   return m ? parseFloat(m[1]) : null
 }
 
@@ -138,7 +147,7 @@ export function assessSafety(input: AssessmentInput): SafetyResult {
   }
 
   // ── Rule 2: Release type mismatch (highest clinical risk) ─────────────
-  const productRT = inferReleaseType(product.brand_name, product.release_type)
+  const productRT = inferReleaseType(product.brand_name, product.release_type, product.composition_text_raw)
   const altRT = inferReleaseType(alt.brand_name, alt.release_type)
 
   if (productRT !== altRT) {
@@ -205,7 +214,7 @@ export function assessSafety(input: AssessmentInput): SafetyResult {
   const productForm = (product.dosage_form ?? '').toLowerCase()
   const altForm = (alt.dosage_form ?? '').toLowerCase()
   if (productForm && altForm && productForm !== altForm) {
-    warnings.push('release_type_mismatch') // closest existing warning
+    warnings.push('dosage_form_mismatch')
     return {
       verdict: 'check_pharmacist',
       explanation: `Your prescription is for a ${productForm}; this is a ${altForm}. The dosage form is different — absorption can vary. Confirm with your pharmacist that switching is appropriate for you.`,

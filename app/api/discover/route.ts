@@ -1,6 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase'
 import { NextRequest, NextResponse } from 'next/server'
 import { parseComposition, generateCanonicalKey } from '@/lib/composition-engine'
+import { checkRateLimit, rateLimitHeaders } from '@/lib/ratelimit'
+
+const DISCOVER_LIMIT = 5 // requests per IP per minute
 
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -104,6 +107,14 @@ async function insertProducts(products: OneMgProduct[]) {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  if (!checkRateLimit(ip, DISCOVER_LIMIT)) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: rateLimitHeaders(ip, DISCOVER_LIMIT) },
+    )
+  }
+
   try {
     const { query, session_id } = await req.json()
     if (!query?.trim()) return NextResponse.json({ error: 'query required' }, { status: 400 })
