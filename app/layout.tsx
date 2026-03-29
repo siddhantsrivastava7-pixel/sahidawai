@@ -15,7 +15,7 @@ const dmSans = DM_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'SahiDawai — Same Salt. Better Price.',
+  title: 'MyDawai — Same Salt. Better Price.',
   description:
     'Find cheaper generic alternatives to your medicine. Compare prices by salt composition. Built for India.',
   keywords: 'generic medicine, cheaper alternatives, medicine price comparison, India',

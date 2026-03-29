@@ -89,7 +89,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-gray-100 text-center py-7 px-4">
-        <p className="text-gray-400 text-xs font-medium">SahiDawai — Empowering patients with price transparency</p>
+        <p className="text-gray-400 text-xs font-medium">MyDawai — Empowering patients with price transparency</p>
         <p className="text-gray-300 text-xs mt-1.5">Not a substitute for medical advice · Always consult your pharmacist</p>
       </footer>
     </div>
