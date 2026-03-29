@@ -42,11 +42,18 @@ function SavingsHero({ analysis }: { analysis: PrescriptionAnalysis }) {
               </div>
             </div>
           </div>
-          <div className="bg-gray-800 px-5 py-3">
-            <p className="text-sm">
-              <span className="text-gray-500 line-through">₹{total_current_cost.toFixed(0)}</span>
-              <span className="text-white font-bold ml-2">→ ₹{total_cheapest_cost.toFixed(0)}</span>
-            </p>
+          <div className="bg-gray-800 px-5 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wide mb-0.5">Total bill</p>
+              <p className="text-sm">
+                <span className="text-gray-500 line-through">₹{total_current_cost.toFixed(0)}</span>
+                <span className="text-white font-bold ml-2">→ ₹{total_cheapest_cost.toFixed(0)}</span>
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wide mb-0.5">You save</p>
+              <p className="text-emerald-400 font-black text-base">₹{total_savings.toFixed(0)}</p>
+            </div>
           </div>
         </div>
       ) : (
@@ -100,19 +107,30 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
 
         {/* Has a cheaper option */}
         {item.found && hasSavings && cheapestAlt && (
-          <button
-            onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
-            className="w-full flex items-center justify-between bg-emerald-600 rounded-xl px-4 py-3.5 text-left active:bg-emerald-700 transition-colors"
-          >
-            <div className="flex-1 min-w-0 pr-3">
-              <p className="text-emerald-200 text-[10px] font-bold uppercase tracking-wide mb-0.5">Switch to</p>
-              <p className="text-white font-bold text-sm leading-tight truncate">{cheapestAlt.brand_name}</p>
+          <div className="space-y-2">
+            {/* Price comparison row */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-0.5">You pay now</p>
+                <p className="text-lg font-black text-gray-900 leading-none">₹{item.course_cost?.toFixed(0)}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{item.tabs_per_course} tab{item.tabs_per_course !== 1 ? 's' : ''} × ₹{Number(item.product?.price_per_unit).toFixed(0)}</p>
+              </div>
+              <div className="text-gray-300 font-bold text-lg shrink-0">→</div>
+              <div className="flex-1 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wide mb-0.5">Switch to</p>
+                <p className="text-lg font-black text-emerald-700 leading-none">₹{item.cheapest_course_cost?.toFixed(0)}</p>
+                <p className="text-[10px] text-emerald-500 mt-0.5">{item.tabs_per_course} tabs × ₹{Number(cheapestAlt.price_per_unit).toFixed(0)}</p>
+              </div>
             </div>
-            <div className="text-right shrink-0">
-              <p className="text-white text-lg font-black leading-none">Save ₹{displaySavings?.toFixed(0)}</p>
-              <p className="text-emerald-300 text-[10px] mt-0.5">{costLabel}</p>
-            </div>
-          </button>
+            {/* CTA */}
+            <button
+              onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
+              className="w-full flex items-center justify-between bg-emerald-600 rounded-xl px-4 py-3 text-left active:bg-emerald-700 transition-colors"
+            >
+              <p className="text-white font-bold text-sm truncate">{cheapestAlt.brand_name}</p>
+              <p className="text-white font-black text-base shrink-0 ml-3">Save ₹{displaySavings?.toFixed(0)}</p>
+            </button>
+          </div>
         )}
 
         {/* Already cheapest */}
