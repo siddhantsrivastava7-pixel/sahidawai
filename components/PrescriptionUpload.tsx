@@ -13,24 +13,48 @@ const NOISE_WORDS = new Set([
   'syrup', 'days', 'weeks', 'months', 'refill', 'signature', 'doctor',
   'patient', 'name', 'age', 'sex', 'male', 'female', 'address', 'phone',
   'reg', 'registration', 'licence', 'license', 'hospital', 'clinic',
+  'unit', 'units', 'instruction', 'general', 'advice', 'notes', 'nil',
 ])
 
-const DOSAGE_RE = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s+(\d+(?:\.\d+)?)\s*(mg|ml|mcg|g|iu|%)\b/gi
+// Pattern A: "Name 500mg" or "Name 500 mg" (standard)
+const RE_A = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s+(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)\s*mg\b/gi
+// Pattern B: "Name (500 mg)" or "Name(500mg)" — parenthesized dose
+const RE_B = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s*\(\s*(\d+(?:\.\d+)?(?:\/\d+(?:\.\d+)?)?)\s*mg\s*\)/gi
+// Pattern C: "BrandName 625 Tablet" — brand name + bare number + tablet/cap keyword
+const RE_C = /([A-Z][A-Za-z0-9\-]{2,30}(?:\s+[A-Z][A-Za-z0-9\-]{1,20})?)\s+(\d{2,4})\s+(?:tablet|cap|capsule|syrup|drops|injection)\b/gi
+
+function tryExtract(re: RegExp, text: string, seen: Set<string>, results: string[], unitSuffix: string) {
+  re.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = re.exec(text)) !== null) {
+    const rawName = match[1].trim().replace(/\s+/g, ' ')
+    const strength = match[2]
+    if (NOISE_WORDS.has(rawName.toLowerCase())) continue
+    if (rawName.split(' ').length > 4) continue // skip sentence fragments
+    const key = rawName.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      results.push(`${rawName} ${strength}${unitSuffix}`)
+    }
+  }
+}
 
 function extractMedicines(text: string): string[] {
   const seen = new Set<string>()
   const results: string[] = []
-  DOSAGE_RE.lastIndex = 0
+  tryExtract(RE_A, text, seen, results, 'mg')
+  tryExtract(RE_B, text, seen, results, 'mg')
+  // Pattern C: brand + bare number, no unit — search manually
+  RE_C.lastIndex = 0
   let match: RegExpExecArray | null
-  while ((match = DOSAGE_RE.exec(text)) !== null) {
+  while ((match = RE_C.exec(text)) !== null) {
     const rawName = match[1].trim()
     const strength = match[2]
-    const unit = match[3].toLowerCase()
     if (NOISE_WORDS.has(rawName.toLowerCase())) continue
     const key = rawName.toLowerCase()
     if (!seen.has(key)) {
       seen.add(key)
-      results.push(`${rawName} ${strength}${unit}`)
+      results.push(`${rawName} ${strength}`)
     }
   }
   return results
