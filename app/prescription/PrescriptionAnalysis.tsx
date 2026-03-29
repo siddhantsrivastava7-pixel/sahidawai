@@ -2,8 +2,10 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PrescriptionAnalysis, PrescriptionItem } from '@/app/api/prescription/route'
+import { OcrExtractResponse, OcrCandidate } from '@/app/api/ocr-extract/route'
 import { VERDICT_META } from '@/lib/safety'
 import { SafetyVerdict } from '@/types'
+import PrescriptionReview, { ConfirmedMedicine, CorrectionRecord } from '@/components/PrescriptionReview'
 
 function VerdictBadge({ verdict }: { verdict: SafetyVerdict }) {
   const m = VERDICT_META[verdict]
@@ -32,7 +34,6 @@ function SavingsHero({ analysis }: { analysis: PrescriptionAnalysis }) {
 
   return (
     <div className="space-y-3">
-      {/* Condition pills — horizontally scrollable */}
       {conditions.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4" style={{ scrollbarWidth: 'none' }}>
           {conditions.map(c => (
@@ -45,16 +46,13 @@ function SavingsHero({ analysis }: { analysis: PrescriptionAnalysis }) {
         </div>
       )}
 
-      {/* Hero card */}
       {hasSavings ? (
         <div className="bg-gray-900 rounded-2xl overflow-hidden">
           <div className="px-5 pt-5 pb-4">
             <p className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-3">You could save</p>
             <div className="flex items-end justify-between">
               <div>
-                <p className="text-white text-5xl font-black tracking-tight leading-none">
-                  ₹{displaySavings.toFixed(0)}
-                </p>
+                <p className="text-white text-5xl font-black tracking-tight leading-none">₹{displaySavings.toFixed(0)}</p>
                 <p className="text-gray-400 text-sm mt-2">{unit}</p>
               </div>
               <div className="text-right">
@@ -69,9 +67,7 @@ function SavingsHero({ analysis }: { analysis: PrescriptionAnalysis }) {
               <span className="text-white font-bold ml-2">→ ₹{displayCheapest.toFixed(0)}</span>
             </p>
             {is_chronic_prescription && (
-              <span className="text-emerald-400 text-xs font-semibold">
-                ₹{(total_monthly_savings * 12).toFixed(0)}/year
-              </span>
+              <span className="text-emerald-400 text-xs font-semibold">₹{(total_monthly_savings * 12).toFixed(0)}/year</span>
             )}
           </div>
         </div>
@@ -104,23 +100,16 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      {/* Accent bar */}
       <div className={`h-1 ${hasSavings && cheapestAlt ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' : 'bg-gray-100'}`} />
-
       <div className="p-5">
-        {/* Name + badges */}
         <div className="flex items-start gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-gray-900 text-lg leading-tight">{item.name}</h3>
-            <p className="text-sm text-gray-400 mt-0.5">
-              {item.frequency_label} · {item.duration_days} day{item.duration_days !== 1 ? 's' : ''}
-            </p>
+            <p className="text-sm text-gray-400 mt-0.5">{item.frequency_label} · {item.duration_days} day{item.duration_days !== 1 ? 's' : ''}</p>
           </div>
           <div className="shrink-0 flex flex-col items-end gap-1">
             {item.is_chronic && (
-              <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full font-bold uppercase">
-                Chronic
-              </span>
+              <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-2 py-0.5 rounded-full font-bold uppercase">Chronic</span>
             )}
             {!item.found && (
               <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full font-medium">Not found</span>
@@ -130,7 +119,6 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
 
         {item.found && (
           <>
-            {/* Cost vs savings */}
             <div className="flex items-stretch gap-3 mb-4">
               <div className="flex-1 bg-gray-50 rounded-xl px-4 py-3">
                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1">Current cost</p>
@@ -146,7 +134,6 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
               )}
             </div>
 
-            {/* Cheapest alt CTA */}
             {hasSavings && cheapestAlt && !showAlts && (
               <button
                 onClick={() => setShowAlts(true)}
@@ -155,9 +142,7 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
                 <div className="flex-1 min-w-0 pr-3">
                   <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wide mb-1">Cheapest safe option</p>
                   <p className="text-sm font-bold text-gray-900 truncate">{cheapestAlt.brand_name}</p>
-                  <div className="mt-1.5">
-                    <VerdictBadge verdict={cheapestAlt.verdict} />
-                  </div>
+                  <div className="mt-1.5"><VerdictBadge verdict={cheapestAlt.verdict} /></div>
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-lg font-black text-gray-900">₹{Number(cheapestAlt.price_per_unit).toFixed(2)}</p>
@@ -167,14 +152,11 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
               </button>
             )}
 
-            {/* Expanded alternatives */}
             {showAlts && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Alternatives</p>
-                  <button onClick={() => setShowAlts(false)} className="text-xs text-gray-400 font-semibold py-1 px-2">
-                    Hide ↑
-                  </button>
+                  <button onClick={() => setShowAlts(false)} className="text-xs text-gray-400 font-semibold py-1 px-2">Hide ↑</button>
                 </div>
                 {item.alternatives
                   ?.filter(a => a.verdict === 'safe' || a.verdict === 'check_pharmacist')
@@ -184,9 +166,7 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900 text-sm">{alt.brand_name}</p>
                         <p className="text-[11px] text-gray-400 truncate mt-0.5">{alt.manufacturer}</p>
-                        <div className="mt-1.5">
-                          <VerdictBadge verdict={alt.verdict} />
-                        </div>
+                        <div className="mt-1.5"><VerdictBadge verdict={alt.verdict} /></div>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-base font-bold text-gray-900">₹{Number(alt.price_per_unit).toFixed(2)}</p>
@@ -237,22 +217,8 @@ function MedicineCarousel({ items }: { items: PrescriptionItem[] }) {
   const prev = () => setActiveIdx(i => Math.max(0, i - 1))
   const next = () => setActiveIdx(i => Math.min(items.length - 1, i + 1))
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX
-    touchStartY.current = e.touches[0].clientY
-  }
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const dx = touchStartX.current - e.changedTouches[0].clientX
-    const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY)
-    if (dy > Math.abs(dx) || Math.abs(dx) < 40) return
-    if (dx > 0) next()
-    else prev()
-  }
-
   return (
     <div className="space-y-4">
-      {/* Counter + dots */}
       <div className="flex items-center justify-between">
         <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
           Medicine {activeIdx + 1} of {items.length}
@@ -260,38 +226,33 @@ function MedicineCarousel({ items }: { items: PrescriptionItem[] }) {
         {items.length > 1 && (
           <div className="flex items-center gap-1.5">
             {items.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setActiveIdx(i)}
-                className={`rounded-full transition-all duration-200 ${
-                  i === activeIdx ? 'w-5 h-2 bg-emerald-500' : 'w-2 h-2 bg-gray-200'
-                }`}
-              />
+              <button key={i} onClick={() => setActiveIdx(i)}
+                className={`rounded-full transition-all duration-200 ${i === activeIdx ? 'w-5 h-2 bg-emerald-500' : 'w-2 h-2 bg-gray-200'}`} />
             ))}
           </div>
         )}
       </div>
 
-      {/* Card */}
-      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <div
+        onTouchStart={e => { touchStartX.current = e.touches[0].clientX; touchStartY.current = e.touches[0].clientY }}
+        onTouchEnd={e => {
+          const dx = touchStartX.current - e.changedTouches[0].clientX
+          const dy = Math.abs(touchStartY.current - e.changedTouches[0].clientY)
+          if (dy > Math.abs(dx) || Math.abs(dx) < 40) return
+          if (dx > 0) next(); else prev()
+        }}
+      >
         <MedicineCard item={items[activeIdx]} />
       </div>
 
-      {/* Prev / Next */}
       {items.length > 1 && (
         <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={prev}
-            disabled={activeIdx === 0}
-            className="py-3.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 disabled:opacity-25 active:bg-gray-50 transition-colors"
-          >
+          <button onClick={prev} disabled={activeIdx === 0}
+            className="py-3.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 disabled:opacity-25 active:bg-gray-50">
             ← Previous
           </button>
-          <button
-            onClick={next}
-            disabled={activeIdx === items.length - 1}
-            className="py-3.5 rounded-xl bg-emerald-600 text-sm font-bold text-white disabled:opacity-25 active:bg-emerald-700 transition-colors"
-          >
+          <button onClick={next} disabled={activeIdx === items.length - 1}
+            className="py-3.5 rounded-xl bg-emerald-600 text-sm font-bold text-white disabled:opacity-25 active:bg-emerald-700">
             Next →
           </button>
         </div>
@@ -302,27 +263,71 @@ function MedicineCarousel({ items }: { items: PrescriptionItem[] }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Status = 'idle' | 'loading' | 'done' | 'error'
+type Status = 'idle' | 'extracting' | 'reviewing' | 'analysing' | 'done' | 'error'
 
 export default function PrescriptionAnalysisPage() {
   const [status, setStatus] = useState<Status>('idle')
+  const [candidates, setCandidates] = useState<OcrCandidate[]>([])
+  const [sessionId, setSessionId] = useState('')
   const [analysis, setAnalysis] = useState<PrescriptionAnalysis | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const reset = () => {
+    setStatus('idle')
+    setCandidates([])
+    setAnalysis(null)
+    setErrorMsg('')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  // Step 1: Upload → OCR extract
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setStatus('loading')
-    setAnalysis(null)
+    setStatus('extracting')
     setErrorMsg('')
+
     const formData = new FormData()
     formData.append('image', file)
+
     try {
-      const res = await fetch('/api/prescription', { method: 'POST', body: formData })
+      const res = await fetch('/api/ocr-extract', { method: 'POST', body: formData })
+      const data: OcrExtractResponse = await res.json()
+      if (!res.ok || !data.candidates?.length) {
+        setErrorMsg((data as any).error ?? 'Could not read any medicines from this photo.')
+        setStatus('error')
+        return
+      }
+      setCandidates(data.candidates)
+      setSessionId(data.session_id)
+      setStatus('reviewing')
+    } catch {
+      setErrorMsg('Something went wrong. Please try again.')
+      setStatus('error')
+    }
+  }
+
+  // Step 2: User confirms → run analysis
+  const handleConfirm = async (medicines: ConfirmedMedicine[], corrections: CorrectionRecord[]) => {
+    setStatus('analysing')
+
+    // Store corrections fire-and-forget
+    void fetch('/api/ocr-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, corrections }),
+    })
+
+    try {
+      const res = await fetch('/api/prescription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ medicines, session_id: sessionId }),
+      })
       const data = await res.json()
       if (!res.ok || !data.items) {
-        setErrorMsg(data.error ?? 'Could not read prescription.')
+        setErrorMsg(data.error ?? 'Analysis failed.')
         setStatus('error')
         return
       }
@@ -334,24 +339,16 @@ export default function PrescriptionAnalysisPage() {
     }
   }
 
-  const reset = () => {
-    setStatus('idle')
-    setAnalysis(null)
-    if (inputRef.current) inputRef.current.value = ''
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-lg mx-auto px-4 pt-8 pb-16">
 
         {/* Header */}
-        {status !== 'done' && (
+        {(status === 'idle' || status === 'extracting') && (
           <div className="mb-8">
             <p className="text-[10px] font-bold tracking-[0.2em] text-emerald-600 uppercase mb-2">Prescription scan</p>
             <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Find cheaper medicines</h1>
-            <p className="text-gray-400 text-sm mt-1.5">
-              Upload your prescription — we find you savings instantly.
-            </p>
+            <p className="text-gray-400 text-sm mt-1.5">Upload your prescription — we find savings instantly.</p>
           </div>
         )}
 
@@ -375,13 +372,8 @@ export default function PrescriptionAnalysisPage() {
                 <p className="text-sm text-gray-400 mt-1">JPG, PNG, WebP · Max 10 MB</p>
               </div>
             </button>
-
             <div className="grid grid-cols-3 gap-3">
-              {[
-                { icon: '💰', label: 'Monthly savings' },
-                { icon: '🛡', label: 'Safety check' },
-                { icon: '🏥', label: 'Condition hints' },
-              ].map(f => (
+              {[{ icon: '💰', label: 'Monthly savings' }, { icon: '🛡', label: 'Safety check' }, { icon: '🏥', label: 'Condition hints' }].map(f => (
                 <div key={f.label} className="bg-white border border-gray-100 rounded-xl p-4 text-center shadow-sm">
                   <p className="text-2xl mb-2">{f.icon}</p>
                   <p className="text-[11px] font-semibold text-gray-600 leading-tight">{f.label}</p>
@@ -391,8 +383,8 @@ export default function PrescriptionAnalysisPage() {
           </div>
         )}
 
-        {/* Loading */}
-        {status === 'loading' && (
+        {/* Extracting */}
+        {status === 'extracting' && (
           <div className="space-y-4">
             <div className="flex flex-col items-center py-12 gap-5">
               <div className="flex items-center gap-2">
@@ -401,13 +393,38 @@ export default function PrescriptionAnalysisPage() {
                 ))}
               </div>
               <div className="text-center">
-                <p className="text-base font-bold text-gray-800">Analysing prescription…</p>
-                <p className="text-sm text-gray-400 mt-1">Reading medicines · Finding alternatives</p>
+                <p className="text-base font-bold text-gray-800">Reading prescription…</p>
+                <p className="text-sm text-gray-400 mt-1">Extracting medicines · Matching to database</p>
               </div>
             </div>
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-28 bg-white rounded-2xl border border-gray-100 animate-pulse" />
-            ))}
+            {[1, 2, 3].map(i => <div key={i} className="h-28 bg-white rounded-2xl border border-gray-100 animate-pulse" />)}
+          </div>
+        )}
+
+        {/* Review */}
+        {status === 'reviewing' && candidates.length > 0 && (
+          <PrescriptionReview
+            candidates={candidates}
+            sessionId={sessionId}
+            onConfirm={handleConfirm}
+          />
+        )}
+
+        {/* Analysing */}
+        {status === 'analysing' && (
+          <div className="space-y-4">
+            <div className="flex flex-col items-center py-12 gap-5">
+              <div className="flex items-center gap-2">
+                {[0, 1, 2].map(i => (
+                  <span key={i} className="w-3 h-3 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+              <div className="text-center">
+                <p className="text-base font-bold text-gray-800">Finding alternatives…</p>
+                <p className="text-sm text-gray-400 mt-1">Calculating savings · Checking safety</p>
+              </div>
+            </div>
+            {[1, 2, 3].map(i => <div key={i} className="h-28 bg-white rounded-2xl border border-gray-100 animate-pulse" />)}
           </div>
         )}
 
@@ -416,34 +433,27 @@ export default function PrescriptionAnalysisPage() {
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-5 text-3xl">📋</div>
             <p className="text-gray-900 font-bold text-base mb-1">{errorMsg}</p>
-            <p className="text-gray-400 text-sm mb-7 max-w-xs mx-auto">Try a clearer photo with good lighting and the full prescription visible.</p>
+            <p className="text-gray-400 text-sm mb-7 max-w-xs mx-auto">Try a clearer photo with good lighting.</p>
             <button onClick={reset} className="bg-emerald-600 text-white text-sm font-bold px-7 py-3.5 rounded-xl active:bg-emerald-700">
               Try again
             </button>
           </div>
         )}
 
-        {/* Results */}
+        {/* Done */}
         {status === 'done' && analysis && (
           <div className="space-y-5">
-            {/* Results header */}
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Your prescription</h2>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  {analysis.items.length} medicine{analysis.items.length !== 1 ? 's' : ''} found
-                </p>
+                <p className="text-sm text-gray-400 mt-0.5">{analysis.items.length} medicine{analysis.items.length !== 1 ? 's' : ''} found</p>
               </div>
-              <button
-                onClick={reset}
-                className="text-sm text-gray-500 font-semibold bg-gray-100 px-3.5 py-2 rounded-xl active:bg-gray-200"
-              >
+              <button onClick={reset} className="text-sm text-gray-500 font-semibold bg-gray-100 px-3.5 py-2 rounded-xl active:bg-gray-200">
                 ↺ New scan
               </button>
             </div>
 
             <SavingsHero analysis={analysis} />
-
             <MedicineCarousel items={analysis.items} />
 
             <p className="text-xs text-gray-400 leading-relaxed pt-1 border-t border-gray-100">

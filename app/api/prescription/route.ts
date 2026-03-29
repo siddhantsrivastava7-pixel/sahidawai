@@ -272,35 +272,17 @@ async function searchMedicine(
   }
 }
 
-// ── Route handler ──────────────────────────────────────────────────────────
+// ── Shared processing (used by both image and pre-confirmed paths) ──────────
 
-export async function POST(req: NextRequest) {
-  let formData: FormData
-  try { formData = await req.formData() } catch {
-    return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
-  }
-
-  const file = formData.get('image')
-  if (!file || !(file instanceof File)) return NextResponse.json({ error: 'No image' }, { status: 400 })
-  if (!ALLOWED_TYPES.includes(file.type)) return NextResponse.json({ error: 'Unsupported type' }, { status: 400 })
-  if (file.size > MAX_BYTES) return NextResponse.json({ error: 'Too large' }, { status: 400 })
-
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const base64 = buffer.toString('base64')
-
-  // Step 1: OCR — medicines + prescriber signals in one Claude call
-  const { medicines, prescriber } = await extractFromImage(base64, file.type)
-  if (!medicines.length) return NextResponse.json({ error: 'No medicines found' }, { status: 422 })
-
-  // Step 2: NTI list
+async function runAnalysis(
+  medicines: OcrMedicine[],
+  prescriber: PrescriberSignals,
+  sessionId: string,
+): Promise<PrescriptionAnalysis> {
   const { data: ntiRows } = await supabaseAdmin.from('kg_ingredients').select('name').eq('is_nti', true)
   const ntiNames = new Set((ntiRows ?? []).map(r => r.name))
 
-  // Step 3: search all medicines in parallel
-  const sessionId = Math.random().toString(36).slice(2)
   const items = await Promise.all(medicines.slice(0, 8).map(m => searchMedicine(m, ntiNames)))
-
-  // Step 4: aggregate totals + infer conditions
   const found = items.filter(i => i.found)
 
   const total_current_cost = found.reduce((s, i) => s + (i.course_cost ?? 0), 0)
@@ -311,20 +293,18 @@ export async function POST(req: NextRequest) {
   const total_monthly_cheapest = found.reduce((s, i) => s + (i.cheapest_monthly_cost ?? 0), 0)
   const total_monthly_savings = total_monthly_current - total_monthly_cheapest
 
-  // Collect all ingredient names for condition inference
   const allIngredients = found.flatMap(i =>
     (i.product?.ingredients ?? []).map(ing => ing.ingredient)
   )
   const conditions = inferConditions(allIngredients)
   const is_chronic_prescription = conditions.some(c => c.chronic) || found.some(i => i.is_chronic)
 
-  // Step 5: store behavior data (fire-and-forget — never blocks response)
   void (async () => {
     const prescriberId = await upsertPrescriber(prescriber)
     await storePrescriptionEvents(items, prescriberId, sessionId, conditions)
   })()
 
-  return NextResponse.json({
+  return {
     items,
     conditions,
     is_chronic_prescription,
@@ -334,5 +314,49 @@ export async function POST(req: NextRequest) {
     total_monthly_current,
     total_monthly_cheapest,
     total_monthly_savings,
-  } satisfies PrescriptionAnalysis)
+  }
+}
+
+// ── Route handler ──────────────────────────────────────────────────────────
+
+export async function POST(req: NextRequest) {
+  const contentType = req.headers.get('content-type') ?? ''
+
+  // ── Path A: pre-confirmed medicines (from review UI) ───────────────────
+  if (contentType.includes('application/json')) {
+    let body: { medicines?: OcrMedicine[]; session_id?: string }
+    try { body = await req.json() } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    }
+
+    const medicines = body.medicines
+    if (!Array.isArray(medicines) || !medicines.length) {
+      return NextResponse.json({ error: 'No medicines provided' }, { status: 422 })
+    }
+
+    const sessionId = body.session_id ?? Math.random().toString(36).slice(2)
+    const prescriber: PrescriberSignals = { doctor_name: null, city: null, speciality_hint: null }
+
+    const analysis = await runAnalysis(medicines, prescriber, sessionId)
+    return NextResponse.json(analysis satisfies PrescriptionAnalysis)
+  }
+
+  // ── Path B: image upload (legacy / direct use) ─────────────────────────
+  let formData: FormData
+  try { formData = await req.formData() } catch {
+    return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
+  }
+
+  const file = formData.get('image')
+  if (!file || !(file instanceof File)) return NextResponse.json({ error: 'No image' }, { status: 400 })
+  if (!ALLOWED_TYPES.includes(file.type)) return NextResponse.json({ error: 'Unsupported type' }, { status: 400 })
+  if (file.size > MAX_BYTES) return NextResponse.json({ error: 'Too large' }, { status: 400 })
+
+  const base64 = Buffer.from(await file.arrayBuffer()).toString('base64')
+  const { medicines, prescriber } = await extractFromImage(base64, file.type)
+  if (!medicines.length) return NextResponse.json({ error: 'No medicines found' }, { status: 422 })
+
+  const sessionId = Math.random().toString(36).slice(2)
+  const analysis = await runAnalysis(medicines, prescriber, sessionId)
+  return NextResponse.json(analysis satisfies PrescriptionAnalysis)
 }
