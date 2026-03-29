@@ -126,9 +126,15 @@ async function insertProducts(products: OneMgProduct[]) {
   }
 }
 
+const SEED_SECRET = process.env.SEED_SECRET
+
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
-  if (!checkRateLimit(ip, DISCOVER_LIMIT)) {
+  const seedToken = req.headers.get('x-seed-secret')
+
+  // Skip rate limit for internal seed requests
+  const isSeed = SEED_SECRET && seedToken === SEED_SECRET
+  if (!isSeed && !checkRateLimit(ip, DISCOVER_LIMIT)) {
     return NextResponse.json(
       { error: 'Too many requests' },
       { status: 429, headers: rateLimitHeaders(ip, DISCOVER_LIMIT) },
