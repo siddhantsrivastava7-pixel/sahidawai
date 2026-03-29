@@ -51,9 +51,29 @@ async function fetch1mg(query: string): Promise<OneMgProduct[]> {
   })).filter(p => p.name && p.short_composition)
 }
 
+// Compositions that are symptoms/conditions, not ingredient names.
+// 1mg sometimes returns these when the drug DB entry is incomplete.
+const GARBAGE_COMPOSITION = new Set([
+  'nausea', 'pain', 'fever', 'cold', 'cough', 'acidity', 'allergy',
+  'infection', 'acne', 'breakouts', 'inflammation', 'constipation',
+  'diarrhea', 'diarrhoea', 'headache', 'vomiting', 'bloating',
+  'bacterial infections', 'bacterial eye infections', 'bipolar disorder',
+  'prevention of blood clot', 'blood clot',
+])
+
+function isGarbageComposition(composition: string): boolean {
+  const lower = composition.toLowerCase().trim()
+  // Exact match against known bad values
+  if (GARBAGE_COMPOSITION.has(lower)) return true
+  // No digit = almost certainly not a real composition (real ones have strengths like "10mg")
+  if (!/\d/.test(composition)) return true
+  return false
+}
+
 async function insertProducts(products: OneMgProduct[]) {
   for (const p of products) {
     const composition = p.short_composition
+    if (isGarbageComposition(composition)) continue
     const parsed = parseComposition(composition)
     if (!parsed.ingredients.length) continue
 
