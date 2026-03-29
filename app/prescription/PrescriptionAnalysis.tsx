@@ -147,13 +147,24 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const STORAGE_KEY = 'mydawai_rx_analysis'
+
 type Status = 'idle' | 'extracting' | 'reviewing' | 'analysing' | 'done' | 'error'
 
 export default function PrescriptionAnalysisPage() {
-  const [status, setStatus] = useState<Status>('idle')
+  const [status, setStatus] = useState<Status>(() => {
+    try {
+      return sessionStorage.getItem(STORAGE_KEY) ? 'done' : 'idle'
+    } catch { return 'idle' }
+  })
   const [candidates, setCandidates] = useState<OcrCandidate[]>([])
   const [sessionId, setSessionId] = useState('')
-  const [analysis, setAnalysis] = useState<PrescriptionAnalysis | null>(null)
+  const [analysis, setAnalysis] = useState<PrescriptionAnalysis | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch { return null }
+  })
   const [errorMsg, setErrorMsg] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -162,6 +173,7 @@ export default function PrescriptionAnalysisPage() {
     setCandidates([])
     setAnalysis(null)
     setErrorMsg('')
+    try { sessionStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
     if (inputRef.current) inputRef.current.value = ''
   }
 
@@ -215,6 +227,7 @@ export default function PrescriptionAnalysisPage() {
         setStatus('error')
         return
       }
+      try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* ignore */ }
       setAnalysis(data)
       setStatus('done')
     } catch {
