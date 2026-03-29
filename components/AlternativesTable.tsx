@@ -1,3 +1,5 @@
+'use client'
+import { useState } from 'react'
 import { Alternative, Product, Savings } from '@/types'
 
 interface Props {
@@ -40,6 +42,8 @@ function ConfidenceBadge({ score }: { score: number }) {
 }
 
 export default function AlternativesTable({ alternatives, savings }: Props) {
+  const [showCostlier, setShowCostlier] = useState(false)
+
   if (!alternatives.length) {
     return (
       <div className="bg-white border border-gray-100 rounded-2xl p-10 text-center shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
@@ -50,7 +54,10 @@ export default function AlternativesTable({ alternatives, savings }: Props) {
     )
   }
 
+  const cheaper = alternatives.filter(a => a.savings_per_unit > 0)
+  const costlier = alternatives.filter(a => a.savings_per_unit <= 0)
   const unsafeCount = alternatives.filter(a => !a.is_safe_substitute).length
+  const visibleAlts = showCostlier ? alternatives : cheaper
 
   return (
     <div className="space-y-2.5">
@@ -90,7 +97,7 @@ export default function AlternativesTable({ alternatives, savings }: Props) {
       )}
 
       {/* Alternatives list */}
-      {alternatives.map((alt, i) => {
+      {visibleAlts.map((alt, i) => {
         const altPPU = Number(alt.price_per_unit)
         const isCheaper = alt.savings_per_unit > 0
         const isBest = i === 0 && isCheaper && alt.is_safe_substitute
@@ -176,6 +183,18 @@ export default function AlternativesTable({ alternatives, savings }: Props) {
           </div>
         )
       })}
+
+      {/* Toggle for costlier alternatives */}
+      {costlier.length > 0 && (
+        <button
+          onClick={() => setShowCostlier(v => !v)}
+          className="w-full text-center text-xs text-gray-400 font-medium py-2.5 hover:text-gray-600 transition-colors"
+        >
+          {showCostlier
+            ? `Hide ${costlier.length} more expensive option${costlier.length !== 1 ? 's' : ''} ↑`
+            : `Show ${costlier.length} more expensive option${costlier.length !== 1 ? 's' : ''} ↓`}
+        </button>
+      )}
     </div>
   )
 }

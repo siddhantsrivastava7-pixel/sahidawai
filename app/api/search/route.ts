@@ -9,13 +9,25 @@ const NTI_DRUGS = [
   'theophylline', 'methotrexate', 'clonidine', 'amiodarone',
 ]
 
-function scoreAlternative(product: Product, alt: { release_type: string; dosage_form: string }) {
+const EXTENDED_RELEASE_RE = /\b(SR|XR|ER|CR|LA|CD|TR|MR|RETARD|PROLONGED)\b/i
+
+function inferReleaseType(brandName: string, releaseType: string | null | undefined): string {
+  if (releaseType && releaseType.trim()) return releaseType.trim().toUpperCase()
+  return EXTENDED_RELEASE_RE.test(brandName) ? 'SR' : 'IR'
+}
+
+function scoreAlternative(
+  product: Product & { brand_name: string },
+  alt: { brand_name: string; release_type: string; dosage_form: string },
+) {
   const warnings: SubstitutionWarning[] = []
   let score = 95
 
   // Release type mismatch: IR↔SR/XR/CR/ER is never safe to substitute unilaterally
-  if (alt.release_type && product.release_type &&
-      alt.release_type.toUpperCase() !== product.release_type.toUpperCase()) {
+  // Fall back to name-based inference when the DB column is empty
+  const productRT = inferReleaseType(product.brand_name, product.release_type)
+  const altRT = inferReleaseType(alt.brand_name, alt.release_type)
+  if (altRT !== productRT) {
     warnings.push('release_type_mismatch')
     score = 15
   }

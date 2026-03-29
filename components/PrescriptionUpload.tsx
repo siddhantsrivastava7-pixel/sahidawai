@@ -2,12 +2,44 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Status = 'idle' | 'uploading' | 'done' | 'error'
+type Status = 'idle' | 'loading' | 'done' | 'error'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
+const NOISE_WORDS = new Set([
+  'date', 'time', 'dose', 'dosage', 'take', 'once', 'twice', 'thrice',
+  'daily', 'weekly', 'after', 'before', 'food', 'meals', 'bedtime',
+  'morning', 'night', 'evening', 'tablet', 'tablets', 'capsule', 'capsules',
+  'syrup', 'days', 'weeks', 'months', 'refill', 'signature', 'doctor',
+  'patient', 'name', 'age', 'sex', 'male', 'female', 'address', 'phone',
+  'reg', 'registration', 'licence', 'license', 'hospital', 'clinic',
+])
+
+const DOSAGE_RE = /([A-Za-z][A-Za-z0-9\s\-]{2,39}?)\s+(\d+(?:\.\d+)?)\s*(mg|ml|mcg|g|iu|%)\b/gi
+
+function extractMedicines(text: string): string[] {
+  const seen = new Set<string>()
+  const results: string[] = []
+  DOSAGE_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = DOSAGE_RE.exec(text)) !== null) {
+    const rawName = match[1].trim()
+    const strength = match[2]
+    const unit = match[3].toLowerCase()
+    if (NOISE_WORDS.has(rawName.toLowerCase())) continue
+    const key = rawName.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      results.push(`${rawName} ${strength}${unit}`)
+    }
+  }
+  return results
+}
+
 export default function PrescriptionUpload() {
   const [status, setStatus] = useState<Status>('idle')
+  const [progress, setProgress] = useState(0)
+  const [statusText, setStatusText] = useState('')
   const [medicines, setMedicines] = useState<string[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
@@ -21,23 +53,36 @@ export default function PrescriptionUpload() {
       return
     }
 
-    setStatus('uploading')
+    setStatus('loading')
+    setProgress(0)
+    setStatusText('Loading OCR engine…')
     setMedicines([])
 
-    const formData = new FormData()
-    formData.append('image', file)
-
     try {
-      const res = await fetch('/api/ocr', { method: 'POST', body: formData })
-      const data = await res.json()
+      // Dynamic import so Tesseract only loads when actually needed
+      const { createWorker } = await import('tesseract.js')
 
-      if (!res.ok || !Array.isArray(data.medicines)) {
-        setStatus('error')
-        return
-      }
+      const worker = await createWorker('eng', 1, {
+        logger: (m: { status: string; progress: number }) => {
+          if (m.status === 'loading tesseract core' || m.status === 'initializing tesseract') {
+            setStatusText('Loading OCR engine…')
+            setProgress(Math.round(m.progress * 20))
+          } else if (m.status === 'loading language traineddata') {
+            setStatusText('Loading language model…')
+            setProgress(20 + Math.round(m.progress * 20))
+          } else if (m.status === 'recognizing text') {
+            setStatusText('Reading prescription…')
+            setProgress(40 + Math.round(m.progress * 60))
+          }
+        },
+      })
 
-      setMedicines(data.medicines)
-      setStatus(data.medicines.length === 0 ? 'error' : 'done')
+      const { data } = await worker.recognize(file)
+      await worker.terminate()
+
+      const found = extractMedicines(data.text)
+      setMedicines(found)
+      setStatus(found.length === 0 ? 'error' : 'done')
     } catch {
       setStatus('error')
     }
@@ -45,6 +90,8 @@ export default function PrescriptionUpload() {
 
   const handleReset = () => {
     setStatus('idle')
+    setProgress(0)
+    setStatusText('')
     setMedicines([])
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -72,13 +119,21 @@ export default function PrescriptionUpload() {
         </button>
       )}
 
-      {status === 'uploading' && (
-        <div className="flex items-center gap-2 text-emerald-600 text-xs font-medium">
-          <svg className="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Reading prescription…
+      {status === 'loading' && (
+        <div className="flex flex-col items-center gap-2 w-48">
+          <div className="flex items-center gap-2 text-emerald-600 text-xs font-medium">
+            <svg className="w-3.5 h-3.5 animate-spin shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            <span>{statusText} {progress > 0 ? `${progress}%` : ''}</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1">
+            <div
+              className="bg-emerald-500 h-1 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
       )}
 
