@@ -59,6 +59,19 @@ export async function POST(req: NextRequest) {
 
     const product = matches[0]
 
+    // Reject weak matches: if neither brand_name nor composition contains any word from the
+    // query (≥4 chars), the fuzzy match is misleading — trigger discover instead.
+    const queryWords: string[] = q.toLowerCase().split(/\s+/).filter((w: string) => w.length >= 4)
+    const brandLower = product.brand_name.toLowerCase()
+    const compLower = (product.composition_text_raw ?? '').toLowerCase()
+    const hasWordMatch = queryWords.length === 0 || queryWords.some(
+      (w: string) => brandLower.includes(w) || compLower.includes(w)
+    )
+    if (!hasWordMatch) {
+      void supabaseAdmin.from('search_logs').insert({ query: q, result_count: 0, session_id })
+      return NextResponse.json({ found: false, query: q })
+    }
+
     const { data: rawAlternatives, error: altErr } = await supabaseAdmin
       .rpc('find_alternatives', { p_canonical_key: product.canonical_key, p_exclude_id: product.id })
 
