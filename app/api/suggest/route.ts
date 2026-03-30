@@ -6,6 +6,8 @@ export interface SuggestionItem {
   brand_name: string
   manufacturer: string
   price_per_unit: number
+  mrp: number
+  unit_per_pack: number
   dosage_form: string
   composition_text_raw: string
 }
@@ -25,6 +27,8 @@ export async function GET(req: NextRequest) {
     brand_name: p.brand_name,
     manufacturer: p.manufacturer,
     price_per_unit: Number(p.price_per_unit),
+    mrp: Number(p.mrp),
+    unit_per_pack: Number(p.unit_per_pack),
     dosage_form: p.dosage_form,
     composition_text_raw: p.composition_text_raw,
   }))
