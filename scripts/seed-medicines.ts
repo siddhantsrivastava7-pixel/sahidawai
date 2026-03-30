@@ -122,26 +122,34 @@ const SEED_SECRET = process.env.SEED_SECRET ?? ''
 
 async function discoverViaApp(query: string): Promise<{ found: boolean; inserted?: number; already_in_db?: boolean }> {
   const url = `${PRODUCTION_URL}/api/discover`
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-seed-secret': SEED_SECRET,
-      },
-      body: JSON.stringify({ query, session_id: 'seed' }),
-      signal: AbortSignal.timeout(30000),
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      console.error(`  HTTP ${res.status}: ${text.slice(0, 100)}`)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-seed-secret': SEED_SECRET,
+        },
+        body: JSON.stringify({ query, session_id: 'seed' }),
+        signal: AbortSignal.timeout(30000),
+      })
+      if (res.status === 429) {
+        process.stdout.write(` [rate limited, waiting 65s]`)
+        await sleep(65000)
+        continue
+      }
+      if (!res.ok) {
+        const text = await res.text()
+        console.error(`  HTTP ${res.status}: ${text.slice(0, 100)}`)
+        return { found: false }
+      }
+      return await res.json()
+    } catch (e: any) {
+      console.error(`  Error: ${e.message}`)
       return { found: false }
     }
-    return await res.json()
-  } catch (e: any) {
-    console.error(`  Error: ${e.message}`)
-    return { found: false }
   }
+  return { found: false }
 }
 
 // ── Sleep helper ─────────────────────────────────────────────────────────────
