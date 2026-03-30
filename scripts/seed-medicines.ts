@@ -6,19 +6,6 @@
  * Skips anything already in DB. Rate-limited to be polite to 1mg.
  */
 
-import { createClient } from '@supabase/supabase-js'
-import { readFileSync } from 'fs'
-
-// ── Load .env.local before anything else ────────────────────────────────────
-try {
-  const lines = readFileSync('.env.local', 'utf-8').split('\n')
-  for (const line of lines) {
-    const m = line.match(/^([^#=]+)=(.*)$/)
-    if (m) process.env[m[1].trim()] = m[2].trim()
-  }
-} catch { /* ignore */ }
-
-let supabaseAdmin: ReturnType<typeof createClient>
 
 // ── Top medicines by category ────────────────────────────────────────────────
 // Generic/salt names → 1mg returns all brand variants for that salt
@@ -158,10 +145,6 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  )
   console.log(`Seeding ${SEED_QUERIES.length} queries via ${PRODUCTION_URL}...\n`)
 
   let totalFound = 0
@@ -172,7 +155,7 @@ async function main() {
     process.stdout.write(`[${i + 1}/${SEED_QUERIES.length}] ${query}... `)
 
     const result = await discoverViaApp(query)
-    if (result.found === false) {
+    if (result.found === false && !result.already_in_db) {
       console.log('not found')
       totalNotFound++
     } else {
@@ -185,9 +168,6 @@ async function main() {
   }
 
   console.log(`\nDone. ${totalFound} found, ${totalNotFound} not found.`)
-
-  const { count } = await supabaseAdmin.from('products').select('*', { count: 'exact', head: true })
-  console.log(`Total products in DB: ${count}`)
 }
 
 main().catch(console.error)
