@@ -69,17 +69,24 @@ function SavingsHero({ analysis }: { analysis: PrescriptionAnalysis }) {
   )
 }
 
-// ── Medicine card ─────────────────────────────────────────────────────────────
+// ── Medicine card with choice toggle ─────────────────────────────────────────
 
-function MedicineCard({ item }: { item: PrescriptionItem }) {
-  const router = useRouter()
+interface MedicineChoice {
+  itemIdx: number
+  useAlternative: boolean // false = keep original
+}
 
+function MedicineCard({
+  item, choice, onChoiceChange,
+}: {
+  item: PrescriptionItem
+  choice: boolean  // true = use alternative
+  onChoiceChange: (useAlt: boolean) => void
+}) {
   const cheapestAlt = item.alternatives?.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
     ?? item.alternatives?.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
 
   const hasSavings = (item.course_savings ?? 0) > 0.5
-  const displaySavings = item.course_savings
-  const costLabel = 'on this course'
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -95,51 +102,107 @@ function MedicineCard({ item }: { item: PrescriptionItem }) {
           )}
         </div>
 
-        {/* Not in database */}
+        {/* Not found */}
         {!item.found && (
-          <button
-            onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
-            className="w-full text-sm text-emerald-600 font-bold bg-emerald-50 border border-emerald-100 rounded-xl py-3 active:bg-emerald-100"
-          >
-            Search manually →
-          </button>
+          <p className="text-xs text-gray-400 italic">Not found in database — will use as written</p>
         )}
 
-        {/* Has a cheaper option */}
+        {/* Has a cheaper option — show toggle */}
         {item.found && hasSavings && cheapestAlt && (
-          <div className="space-y-2">
-            {/* Price comparison row */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5 text-center">
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-0.5">You pay now</p>
-                <p className="text-lg font-black text-gray-900 leading-none">₹{item.course_cost?.toFixed(0)}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">{item.tabs_per_course} tab{item.tabs_per_course !== 1 ? 's' : ''} × ₹{Number(item.product?.price_per_unit).toFixed(0)}</p>
-              </div>
-              <div className="text-gray-300 font-bold text-lg shrink-0">→</div>
-              <div className="flex-1 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5 text-center">
-                <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wide mb-0.5">Switch to</p>
-                <p className="text-lg font-black text-emerald-700 leading-none">₹{item.cheapest_course_cost?.toFixed(0)}</p>
-                <p className="text-[10px] text-emerald-500 mt-0.5">{item.tabs_per_course} tabs × ₹{Number(cheapestAlt.price_per_unit).toFixed(0)}</p>
-              </div>
-            </div>
-            {/* CTA */}
+          <div className="flex gap-2">
             <button
-              onClick={() => router.push(`/search?q=${encodeURIComponent(item.name)}`)}
-              className="w-full flex items-center justify-between bg-emerald-600 rounded-xl px-4 py-3 text-left active:bg-emerald-700 transition-colors"
+              onClick={() => onChoiceChange(false)}
+              className={`flex-1 rounded-xl px-3 py-3 text-left border transition-all ${
+                !choice
+                  ? 'bg-gray-900 border-gray-900'
+                  : 'bg-white border-gray-200 active:bg-gray-50'
+              }`}
             >
-              <p className="text-white font-bold text-sm truncate">{cheapestAlt.brand_name}</p>
-              <p className="text-white font-black text-base shrink-0 ml-3">Save ₹{displaySavings?.toFixed(0)}</p>
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${!choice ? 'text-gray-400' : 'text-gray-400'}`}>Original</p>
+              <p className={`text-sm font-bold leading-tight ${!choice ? 'text-white' : 'text-gray-900'}`}>{item.name}</p>
+              <p className={`text-xs mt-0.5 ${!choice ? 'text-gray-400' : 'text-gray-500'}`}>₹{item.course_cost?.toFixed(0)}</p>
+            </button>
+            <button
+              onClick={() => onChoiceChange(true)}
+              className={`flex-1 rounded-xl px-3 py-3 text-left border transition-all ${
+                choice
+                  ? 'bg-emerald-600 border-emerald-600'
+                  : 'bg-white border-gray-200 active:bg-emerald-50'
+              }`}
+            >
+              <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${choice ? 'text-emerald-200' : 'text-emerald-600'}`}>Save ₹{item.course_savings?.toFixed(0)}</p>
+              <p className={`text-sm font-bold leading-tight ${choice ? 'text-white' : 'text-gray-900'}`}>{cheapestAlt.brand_name}</p>
+              <p className={`text-xs mt-0.5 ${choice ? 'text-emerald-200' : 'text-gray-500'}`}>₹{item.cheapest_course_cost?.toFixed(0)}</p>
             </button>
           </div>
         )}
 
         {/* Already cheapest */}
         {item.found && !hasSavings && (
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
             <span className="text-emerald-500 text-sm">✓</span>
-            <p className="text-sm text-gray-500 font-medium">Already the cheapest option</p>
+            <p className="text-sm text-gray-500 font-medium">Already the cheapest</p>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ── Chemist slip ──────────────────────────────────────────────────────────────
+
+function ChemistSlip({
+  items, choices, onClose,
+}: {
+  items: PrescriptionItem[]
+  choices: boolean[]
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 bg-white z-50 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-10 pb-4 border-b border-gray-100">
+        <div>
+          <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-0.5">Show to pharmacist</p>
+          <h2 className="text-xl font-extrabold text-gray-900">My medicines</h2>
+        </div>
+        <button onClick={onClose} className="text-gray-400 bg-gray-100 rounded-xl px-3 py-2 text-sm font-semibold active:bg-gray-200">
+          ✕ Close
+        </button>
+      </div>
+
+      {/* Medicine list */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        {items.map((item, i) => {
+          const alt = item.alternatives?.find(a => a.verdict === 'safe' && a.savings_per_unit > 0)
+            ?? item.alternatives?.find(a => a.verdict === 'check_pharmacist' && a.savings_per_unit > 0)
+          const useAlt = choices[i] && !!alt && (item.course_savings ?? 0) > 0.5
+          const chosenName = useAlt ? alt!.brand_name : item.name
+
+          return (
+            <div key={i} className="bg-gray-50 rounded-2xl px-5 py-4 border border-gray-100">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1">
+                  <p className="text-xl font-black text-gray-900 leading-tight">{chosenName}</p>
+                  <p className="text-sm text-gray-500 mt-1">{item.frequency_label}</p>
+                  <p className="text-sm text-gray-500">{item.duration_days} day{item.duration_days !== 1 ? 's' : ''} · {item.tabs_per_course} unit{item.tabs_per_course !== 1 ? 's' : ''}</p>
+                </div>
+                {useAlt && (
+                  <span className="shrink-0 text-[10px] bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-1 rounded-full font-bold uppercase mt-0.5">
+                    Generic
+                  </span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Footer note */}
+      <div className="px-5 pb-8 pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-400 text-center leading-relaxed">
+          Always switch medicines under pharmacist or physician supervision.
+        </p>
       </div>
     </div>
   )
@@ -165,6 +228,15 @@ export default function PrescriptionAnalysisPage() {
       return saved ? JSON.parse(saved) : null
     } catch { return null }
   })
+  const [choices, setChoices] = useState<boolean[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY)
+      if (!saved) return []
+      const data: PrescriptionAnalysis = JSON.parse(saved)
+      return data.items.map((item: PrescriptionItem) => (item.course_savings ?? 0) > 0.5)
+    } catch { return [] }
+  })
+  const [showSlip, setShowSlip] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -172,6 +244,8 @@ export default function PrescriptionAnalysisPage() {
     setStatus('idle')
     setCandidates([])
     setAnalysis(null)
+    setChoices([])
+    setShowSlip(false)
     setErrorMsg('')
     try { sessionStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
     if (inputRef.current) inputRef.current.value = ''
@@ -229,6 +303,8 @@ export default function PrescriptionAnalysisPage() {
       }
       try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)) } catch { /* ignore */ }
       setAnalysis(data)
+      // Default: use alternative where available and savings > 0
+      setChoices(data.items.map((item: PrescriptionItem) => (item.course_savings ?? 0) > 0.5))
       setStatus('done')
     } catch {
       setErrorMsg('Something went wrong. Please try again.')
@@ -351,17 +427,43 @@ export default function PrescriptionAnalysisPage() {
             </div>
 
             <SavingsHero analysis={analysis} />
+
             <div className="space-y-3">
               {analysis.items.map((item, i) => (
-                <MedicineCard key={i} item={item} />
+                <MedicineCard
+                  key={i}
+                  item={item}
+                  choice={choices[i] ?? false}
+                  onChoiceChange={useAlt => setChoices(prev => {
+                    const next = [...prev]
+                    next[i] = useAlt
+                    return next
+                  })}
+                />
               ))}
             </div>
 
+            {/* Show chemist button */}
+            <button
+              onClick={() => setShowSlip(true)}
+              className="w-full bg-gray-900 text-white font-bold text-base py-4 rounded-2xl active:bg-gray-800 flex items-center justify-center gap-2"
+            >
+              <span>🏪</span> Show my chemist
+            </button>
+
             <p className="text-xs text-gray-400 leading-relaxed pt-1 border-t border-gray-100">
               Always switch medicines under pharmacist or physician supervision.
-              Monthly costs estimated at 30 days × prescribed daily dose.
             </p>
           </div>
+        )}
+
+        {/* Chemist slip overlay */}
+        {showSlip && analysis && (
+          <ChemistSlip
+            items={analysis.items}
+            choices={choices}
+            onClose={() => setShowSlip(false)}
+          />
         )}
       </div>
     </div>
