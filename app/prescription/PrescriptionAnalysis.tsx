@@ -272,6 +272,17 @@ export default function PrescriptionAnalysisPage() {
       setCandidates(data.candidates)
       setSessionId(data.session_id)
       setStatus('reviewing')
+
+      // Proactively seed DB for each extracted medicine (fire-and-forget)
+      // By the time user confirms, the medicines will already be in DB
+      for (const candidate of data.candidates) {
+        const name = candidate.guesses[0]?.brand_name ?? candidate.probable_name
+        void fetch('/api/discover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: name, session_id: data.session_id }),
+        })
+      }
     } catch {
       setErrorMsg('Something went wrong. Please try again.')
       setStatus('error')
