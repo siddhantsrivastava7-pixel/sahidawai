@@ -249,7 +249,7 @@ export default function PrescriptionAnalysisPage() {
           </div>
         )}
 
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
 
         {/* Idle */}
         {status === 'idle' && (
