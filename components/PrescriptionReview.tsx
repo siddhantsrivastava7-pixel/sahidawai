@@ -124,7 +124,7 @@ function MedicineSearch({
             >
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-900">{s.brand_name}</p>
-                <p className="text-[11px] text-gray-400 truncate">{s.composition_text_raw}</p>
+                <p className="text-[11px] text-gray-400 truncate">{s.composition_text_raw} · {s.unit_per_pack} units</p>
               </div>
               <p className="text-xs font-bold text-gray-500 shrink-0">₹{s.price_per_unit.toFixed(2)}</p>
             </button>
